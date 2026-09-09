@@ -1,0 +1,1 @@
+TempOS-13.3.0 f711a581d98caabd8f5e446f6c41498b1f9044e25091cb40b7b74e047c0dab1c https://justapp.me/drive/tempos/public/TempOS-13.3.0.iso ad5bbfb78a43e35d5b318d2bfe97fe12b8545f8ee29fa58d68ccf018339e1bde https://justapp.me/drive/tempos/public/TempOS-13.3.0.zip
