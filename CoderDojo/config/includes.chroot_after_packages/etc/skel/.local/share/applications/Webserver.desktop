@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Webserver
+Comment=
+Exec=webserver.py
+Icon=internet-web-browser
+Path=
+Terminal=false
+StartupNotify=false
+Categories=Development;

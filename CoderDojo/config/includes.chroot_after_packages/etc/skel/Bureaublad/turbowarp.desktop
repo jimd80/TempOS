@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=TurboWarp
+Exec=/usr/bin/chromium --start-fullscreen "https://turbowarp.org/editor"
+Terminal=false
+X-MultipleArgs=false
+Type=Application
+Icon=/Apps/Webapps/turbowarp-icon.png
+Categories=Development;
+StartupWMClass=chromium
+StartupNotify=true

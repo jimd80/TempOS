@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=TempOS Tools
+Comment=
+Exec=tempos
+Icon=drive-multidisk
+Path=
+Terminal=false
+StartupNotify=false
+Categories=Development;

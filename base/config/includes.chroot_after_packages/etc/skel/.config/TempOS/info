@@ -1,0 +1,5 @@
+#This file will be overwritten be the build script. Content is for info
+BrandName=CoderDojo
+Version=13.3
+Image=CoderDojo-13.3.iso
+BuildDate=2026/12/31 23:59:59

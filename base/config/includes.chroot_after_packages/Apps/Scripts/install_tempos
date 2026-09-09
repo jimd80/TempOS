@@ -1,0 +1,894 @@
+#!/usr/bin/env python3
+import os
+import sys
+import re
+import time
+import json
+import shutil
+import urllib.request
+import subprocess
+import hashlib
+import tkinter as tk
+from tkinter import ttk, scrolledtext, messagebox
+
+def run_cmd(cmd, as_root=False, input_text=None):
+    """Executes a shell command and returns stdout as string."""
+    if as_root and os.geteuid() != 0:
+        cmd = ["sudo"] + cmd if isinstance(cmd, list) else f"sudo {cmd}"
+    
+    try:
+        env = os.environ.copy()
+        env["LC_ALL"] = "C"
+        
+        if isinstance(cmd, list):
+            result = subprocess.run(
+                cmd, input=input_text, stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
+                text=True, env=env
+            )
+        else:
+            result = subprocess.run(
+                cmd, input=input_text, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
+                text=True, env=env
+            )
+        return result.stdout.strip()
+    except Exception:
+        return ""
+
+def to_mb(bytes_val):
+    try:
+        return int(float(bytes_val) / (1024 * 1024))
+    except (ValueError, TypeError):
+        return 0
+
+def get_all_block_devices():
+    """Returns a flat list of all block devices from lsblk."""
+    lsblk_json = run_cmd("lsblk -J -b -o PATH,KNAME,PKNAME,TYPE,FSTYPE,LABEL,MOUNTPOINT,SIZE,HOTPLUG,PARTTYPENAME,FSUSED")
+    if not lsblk_json:
+        return []
+    try:
+        data = json.loads(lsblk_json)
+        raw_list = data.get('blockdevices', [])
+    except Exception:
+        return []
+
+    flat_devices = []
+    def _flatten(dev_list):
+        for d in dev_list:
+            flat_devices.append(d)
+            if 'children' in d and isinstance(d['children'], list):
+                _flatten(d['children'])
+    _flatten(raw_list)
+    return flat_devices
+
+
+class InstallTemposApp(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        
+        # Paths and config constants
+        sudo_user = os.environ.get("SUDO_USER")
+        if sudo_user:
+            self.home = os.path.expanduser(f"~{sudo_user}")
+        else:
+            self.home = os.environ.get("HOME", "/home/user")
+            
+        self.asset_folder = "/usr/share/tempos"
+        self.config_folder = os.path.join(self.home, ".config", "TempOS")
+        self.mount_point_dest = "/media/user/TempOsDestination"
+        
+        # 1. Read info file
+        self.brand_name = "TempOS"
+        self.version = ""
+        self.image_name = "TempOS.iso"
+        self.build_date = ""
+        self._load_info()
+        
+        if self.image_name.lower().endswith(".iso"):
+            self.image_no_ext = os.path.splitext(self.image_name)[0]
+        else:
+            self.image_no_ext = self.image_name
+            self.image_name = f"{self.image_name}.iso"
+        
+        # 2. Window setup
+        self.title(f"Install {self.brand_name}")
+        ws, hs = self.winfo_screenwidth(), self.winfo_screenheight()
+        w, h = 880, 750
+        x, y = int((ws - w) / 2), int((hs - h) / 2)
+        self.geometry(f"{w}x{h}+{x}+{y}")
+        self.minsize(750, 600)
+        
+        # State variables
+        self.drives = []
+        self.install_drives_map = []
+        self.install_seq = None
+        self.is_installing = False
+        self.offline_source_dev = None
+        
+        self._build_ui()
+        self._refresh_drives()
+
+    def _load_info(self):
+        info_candidates = [
+            os.path.join(self.config_folder, "info"),
+            "/home/user/.config/TempOS/info",
+            "/etc/tempos/info",
+            os.path.join(self.asset_folder, "info")
+        ]
+        for info_path in info_candidates:
+            if os.path.exists(info_path):
+                try:
+                    with open(info_path, "r") as f:
+                        for line in f:
+                            if "=" in line:
+                                k, v = line.strip().split("=", 1)
+                                k, v = k.strip(), v.strip()
+                                if k == "BrandName" and v:
+                                    self.brand_name = v
+                                elif k == "Version" and v:
+                                    self.version = v
+                                elif k == "Image" and v:
+                                    self.image_name = v
+                                elif k == "BuildDate" and v:
+                                    self.build_date = v
+                    break
+                except Exception:
+                    pass
+
+    def _build_ui(self):
+        pad = {'padx': 10, 'pady': 5}
+        
+        # Top Title Label
+        lbl_title = ttk.Label(
+            self,
+            text=f"Install {self.brand_name} to USB or Fixed drive",
+            font=("TkDefaultFont", 13, "bold")
+        )
+        lbl_title.pack(anchor='w', padx=10, pady=(10, 5))
+        
+        # 1. Source Selection Frame
+        frm_source = ttk.LabelFrame(self, text="Installation Source")
+        frm_source.pack(fill='x', **pad)
+        
+        self.var_source_mode = tk.StringVar(value="offline")
+        
+        rb_offline = ttk.Radiobutton(
+            frm_source,
+            text=f"Offline install [{self.image_no_ext}]",
+            variable=self.var_source_mode,
+            value="offline"
+        )
+        rb_offline.pack(anchor='w', padx=10, pady=3)
+        
+        rb_online = ttk.Radiobutton(
+            frm_source,
+            text="Online install latest version (several gigabyte download)",
+            variable=self.var_source_mode,
+            value="online"
+        )
+        rb_online.pack(anchor='w', padx=10, pady=3)
+        
+        # 2. Destination Frame
+        frm_dest = ttk.LabelFrame(self, text="Destination Drive")
+        frm_dest.pack(fill='x', **pad)
+        
+        f_dest_top = ttk.Frame(frm_dest)
+        f_dest_top.pack(fill='x', padx=5, pady=2)
+        
+        ttk.Label(f_dest_top, text="Select destination drive:").pack(side='left')
+        self.btn_refresh = ttk.Button(f_dest_top, text="Refresh Drives", command=self._refresh_drives)
+        self.btn_refresh.pack(side='right')
+        
+        cols = ("device", "type", "size", "volume")
+        self.tv_dest = ttk.Treeview(frm_dest, columns=cols, show='headings', height=4, selectmode='browse')
+        self.tv_dest.heading("device", text="Device")
+        self.tv_dest.column("device", width=100)
+        self.tv_dest.heading("type", text="Type")
+        self.tv_dest.column("type", width=130)
+        self.tv_dest.heading("size", text="Size")
+        self.tv_dest.column("size", width=110, anchor='e')
+        self.tv_dest.heading("volume", text="Volume")
+        self.tv_dest.column("volume", width=250)
+        self.tv_dest.pack(fill='x', padx=5, pady=5)
+        self.tv_dest.bind('<<TreeviewSelect>>', self._on_dest_select)
+        
+        # 3. Warnings and Confirmation Frame
+        frm_confirm = ttk.LabelFrame(self, text="Confirmation")
+        frm_confirm.pack(fill='x', **pad)
+        
+        self.lbl_wipe_warn = ttk.Label(
+            frm_confirm,
+            text="WARNING: The entire selected drive will be wiped and formatted with Ventoy!",
+            foreground="red",
+            font=("TkDefaultFont", 9, "bold")
+        )
+        self.lbl_wipe_warn.pack(anchor='w', padx=10, pady=(4, 2))
+        
+        self.lbl_fixed_warn = ttk.Label(
+            frm_confirm,
+            text="WARNING: You selected an INTERNAL HARD DRIVE! Overwriting existing operating system and all data!",
+            foreground="red",
+            font=("TkDefaultFont", 9, "bold")
+        )
+        
+        f_conf_in = ttk.Frame(frm_confirm)
+        f_conf_in.pack(fill='x', padx=10, pady=5)
+        
+        ttk.Label(f_conf_in, text="Type ERASE in uppercase to confirm:").pack(side='left', padx=(0, 5))
+        self.ent_erase = ttk.Entry(f_conf_in, width=12)
+        self.ent_erase.pack(side='left', padx=5)
+        self.ent_erase.bind('<KeyRelease>', self._validate_controls)
+        
+        self.btn_install = ttk.Button(
+            f_conf_in,
+            text="Start Installation",
+            command=self.on_start_install,
+            state='disabled'
+        )
+        self.btn_install.pack(side='left', padx=15)
+        
+        self.btn_close = ttk.Button(f_conf_in, text="Close", command=self.on_close)
+        self.btn_close.pack(side='right', padx=5)
+        
+        # 4. Log Output Frame
+        frm_log = ttk.LabelFrame(self, text="Installation Progress")
+        frm_log.pack(fill='both', expand=True, **pad)
+        
+        self.txt_log = scrolledtext.ScrolledText(frm_log, wrap=tk.WORD, font=("Consolas", 10))
+        self.txt_log.pack(expand=True, fill='both', padx=5, pady=5)
+        self.txt_log.tag_config("ERROR", foreground="red")
+        self.txt_log.tag_config("SUCCESS", foreground="green")
+        self.txt_log.tag_config("INFO", foreground="black")
+
+    def log_message(self, status, msg, replace=False):
+        if replace:
+            self.txt_log.delete("end-2l", "end-1c")
+        tag = status if status in ["ERROR", "SUCCESS", "INFO"] else "INFO"
+        self.txt_log.insert(tk.END, f"[{status}] {msg}\n", tag)
+        self.txt_log.see(tk.END)
+        self.update()
+
+    def _find_offline_source_device(self, all_devices=None):
+        if all_devices is None:
+            all_devices = get_all_block_devices()
+
+        matching_devices = []
+        for d in all_devices:
+            lbl = d.get('label') or ''
+            fst = (d.get('fstype') or '').lower()
+            if fst == 'iso9660' and (lbl == self.image_no_ext or lbl == self.image_name or self.image_no_ext.startswith(lbl)):
+                matching_devices.append(d)
+
+        if not matching_devices:
+            return None
+
+        # Prefer disk (top device)
+        for d in matching_devices:
+            if d.get('type') == 'disk':
+                return d.get('path') or f"/dev/{d.get('kname')}"
+
+        first_match = matching_devices[0]
+        pk = first_match.get('pkname')
+        if pk:
+            return f"/dev/{pk}"
+        return first_match.get('path') or f"/dev/{first_match.get('kname')}"
+
+    def _refresh_drives(self):
+        for item in self.tv_dest.get_children():
+            self.tv_dest.delete(item)
+            
+        self.install_drives_map = []
+        self.drives = []
+        
+        all_devices = get_all_block_devices()
+        self.offline_source_dev = self._find_offline_source_device(all_devices)
+
+        # Identify partitions
+        partitions = []
+        for d in all_devices:
+            if d.get('type') != 'part' or d.get('fstype') == 'swap':
+                continue
+            partitions.append({
+                'PartitionDevice': d.get('path') or f"/dev/{d.get('kname')}",
+                'MainDevice': f"/dev/{d.get('pkname')}" if d.get('pkname') else "",
+                'Size': d.get('size'),
+                'FsType': d.get('fstype'),
+                'IsMounted': bool(d.get('mountpoint')),
+                'MountPoint': d.get('mountpoint') or "",
+                'VolumeName': d.get('label') or "",
+            })
+
+        # Exclude active system/live medium and offline ISO source devices
+        excluded_devices = set()
+        if self.offline_source_dev:
+            excluded_devices.add(self.offline_source_dev)
+
+        df_out = run_cmd("df --output=source,target")
+        for line in df_out.splitlines():
+            parts = line.split()
+            if len(parts) >= 2:
+                src, tgt = parts[0], parts[1]
+                if tgt in ["/", "/run/live/medium", "/run/live/rootfs"] and src.startswith("/dev/"):
+                    excluded_devices.add(src)
+
+        for d in all_devices:
+            if d.get('type') != 'disk' or d.get('fstype') == 'swap':
+                continue
+            path = d.get('path') or f"/dev/{d.get('kname')}"
+            if not path:
+                continue
+
+            parts_on_disk = [p for p in partitions if p['MainDevice'] == path]
+            
+            # Check if disk or any of its partitions is in excluded devices
+            is_excluded = (path in excluded_devices) or any(p['PartitionDevice'] in excluded_devices for p in parts_on_disk)
+            if is_excluded:
+                continue
+
+            is_removable = str(d.get('hotplug', '0')) == '1'
+            labels = "+".join([p['VolumeName'] for p in parts_on_disk if p['VolumeName']])
+            
+            drive_info = {
+                'MainDevice': path,
+                'Size': d.get('size', 0),
+                'IsRemovable': is_removable,
+                'VolumeNames': labels,
+                'Partitions': parts_on_disk
+            }
+            self.drives.append(drive_info)
+
+        for d in self.drives:
+            dev_name = d['MainDevice'].replace("/dev/", "")
+            dtype = "Removable" if d['IsRemovable'] else "Internal HD"
+            sz_mb = int(d['Size']) // (1024 * 1024)
+            if sz_mb >= 10240:
+                size_str = f"{sz_mb / 1024:.1f} GB"
+            else:
+                size_str = f"{sz_mb} MB"
+            vol = d['VolumeNames']
+            
+            self.tv_dest.insert('', 'end', values=(dev_name, dtype, size_str, vol))
+            self.install_drives_map.append(d)
+            
+        self._validate_controls()
+
+    def _on_dest_select(self, event=None):
+        sel = self.tv_dest.selection()
+        if sel:
+            idx = self.tv_dest.index(sel[0])
+            drive = self.install_drives_map[idx]
+            if not drive['IsRemovable']:
+                if not self.lbl_fixed_warn.winfo_ismapped():
+                    self.lbl_fixed_warn.pack(anchor='w', padx=10, pady=(0, 2), before=self.ent_erase.master)
+            else:
+                self.lbl_fixed_warn.pack_forget()
+        else:
+            self.lbl_fixed_warn.pack_forget()
+            
+        self._validate_controls()
+
+    def _validate_controls(self, event=None):
+        if self.is_installing:
+            self.btn_install.config(state='disabled')
+            self.btn_refresh.config(state='disabled')
+            self.btn_close.config(state='disabled')
+            self.ent_erase.config(state='disabled')
+            return
+
+        sel = self.tv_dest.selection()
+        has_dest = bool(sel)
+        text_is_erase = (self.ent_erase.get().strip() == "ERASE")
+
+        if has_dest and text_is_erase:
+            self.btn_install.config(state='normal')
+        else:
+            self.btn_install.config(state='disabled')
+
+    def on_close(self):
+        if self.is_installing:
+            messagebox.showwarning("Busy", "Installation is in progress. Please wait.")
+            return
+        self.destroy()
+        sys.exit(0)
+
+    def on_start_install(self):
+        sel = self.tv_dest.selection()
+        if not sel:
+            return
+            
+        idx = self.tv_dest.index(sel[0])
+        drive = self.install_drives_map[idx]
+        mode = self.var_source_mode.get()
+        
+        main_dev = drive['MainDevice']
+        sz_mb = int(drive['Size']) // (1024 * 1024)
+        sz_str = f"{sz_mb / 1024:.1f} GB" if sz_mb >= 10240 else f"{sz_mb} MB"
+        vol = drive['VolumeNames']
+        
+        if drive['IsRemovable']:
+            msg = f"Are you sure you want to install to {main_dev} ({sz_str} {vol})?\n\nTHIS WILL ERASE ALL DATA ON THE DRIVE!"
+        else:
+            msg = (
+                f"You have selected an INTERNAL HARD DRIVE ({main_dev}, {sz_str}).\n\n"
+                "THIS WILL COMPLETELY ERASE THE HARD DRIVE AND OVERWRITE ALL EXISTING OPERATING SYSTEMS AND DATA.\n\n"
+                "Are you absolutely sure you want to proceed?"
+            )
+            
+        if not messagebox.askyesno("Confirm Erase & Install", msg, icon='warning'):
+            return
+
+        self.is_installing = True
+        self._validate_controls()
+        
+        self.txt_log.insert(tk.END, "--- Starting Installation ---\n", "INFO")
+        self.txt_log.see(tk.END)
+        
+        self.install_seq = self._run_installation(drive, mode)
+        self.after(10, self._process_install_step)
+
+    def _process_install_step(self):
+        try:
+            status, msg, replace = next(self.install_seq)
+            self.log_message(status, msg, replace)
+            
+            if status == "ERROR":
+                self._finish_install(success=False)
+                return
+            elif status == "SUCCESS":
+                self._finish_install(success=True)
+                return
+                
+            self.after(10, self._process_install_step)
+        except StopIteration:
+            self._finish_install(success=True)
+        except Exception as e:
+            self.log_message("ERROR", f"Unexpected error: {e}")
+            self._finish_install(success=False)
+
+    def _finish_install(self, success):
+        self.is_installing = False
+        self.txt_log.insert(tk.END, "--- Installation Finished ---\n", "INFO")
+        self.txt_log.see(tk.END)
+        self.btn_close.config(state='normal')
+        self.btn_refresh.config(state='normal')
+        self.ent_erase.config(state='normal')
+        self._refresh_drives()
+        
+        if success:
+            messagebox.showinfo("Installation Complete", "Installation completed successfully.")
+
+    def _download_with_progress(self, url, dest, msg_prefix):
+        """Generator to download file with progress reporting."""
+        req = urllib.request.Request(url, headers={'User-Agent': 'TempOsInstall/1.0'})
+        with urllib.request.urlopen(req) as response:
+            total_size = int(response.info().get('Content-Length', 0))
+            chunk_size = 1024 * 256
+            bytes_done = 0
+            last_yield = 0
+            
+            with open(dest, 'wb') as f:
+                while True:
+                    chunk = response.read(chunk_size)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    bytes_done += len(chunk)
+                    
+                    now = time.time()
+                    if now - last_yield >= 1.0:
+                        mb_done = bytes_done // (1024 * 1024)
+                        if total_size > 0:
+                            pct = (bytes_done * 100 // total_size)
+                            mb_total = total_size // (1024 * 1024)
+                            yield f"{msg_prefix}: {mb_done} MB of {mb_total} MB ({pct}%)", True
+                        else:
+                            yield f"{msg_prefix}: {mb_done} MB downloaded", True
+                        last_yield = now
+
+    def _verify_file_sha256(self, file_path, expected_hash):
+        try:
+            sha = hashlib.sha256()
+            with open(file_path, 'rb') as f:
+                while True:
+                    chunk = f.read(1048576)
+                    if not chunk:
+                        break
+                    sha.update(chunk)
+            actual = sha.hexdigest().lower()
+            return (actual == expected_hash.lower()), actual
+        except Exception as e:
+            return False, str(e)
+
+    def _run_installation(self, dest_drive, mode):
+        main_device = dest_drive['MainDevice']
+        dest_mount = self.mount_point_dest
+        dest_ventoy_dir = os.path.join(dest_mount, "ventoy")
+        dest_ventoy_json = os.path.join(dest_ventoy_dir, "ventoy.json")
+        brand_dir = os.path.join(dest_mount, self.brand_name)
+        
+        # -------------------------------------------------------------
+        # STEP 1: VALIDATE SOURCE
+        # -------------------------------------------------------------
+        if mode == "offline":
+            yield "INFO", f"Searching for offline ISO source device (label: {self.image_no_ext})...", False
+            
+            source_dev = self._find_offline_source_device()
+            if not source_dev:
+                yield "ERROR", f"Offline ISO source with label '{self.image_no_ext}' not found via lsblk.", False
+                return
+                
+            yield "INFO", f"Found source ISO device: {source_dev}", False
+            
+            # Run isosize
+            yield "INFO", f"Running isosize on {source_dev}...", False
+            iso_size_str = run_cmd(["isosize", source_dev], as_root=True)
+            iso_size = None
+            if iso_size_str:
+                m = re.search(r'\b(\d+)\b', iso_size_str)
+                if m:
+                    iso_size = int(m.group(1))
+
+            if not iso_size or iso_size <= 0:
+                # Retry with -b flag
+                iso_size_str_b = run_cmd(["isosize", "-b", source_dev], as_root=True)
+                m = re.search(r'\b(\d+)\b', iso_size_str_b)
+                if m:
+                    iso_size = int(m.group(1))
+
+            if not iso_size or iso_size <= 0:
+                yield "ERROR", f"isosize failed on {source_dev}. Output: {iso_size_str}", False
+                return
+                
+            yield "INFO", f"Detected ISO size: {iso_size} bytes ({iso_size // (1024 * 1024)} MB)", False
+            
+            # Calculate SHA256 of first iso_size bytes with progress
+            yield "INFO", f"Calculating SHA256 hash of source device...", False
+            try:
+                proc = subprocess.Popen(
+                    ["sudo", "head", "-c", str(iso_size), source_dev],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE
+                )
+                sha = hashlib.sha256()
+                bytes_read = 0
+                last_yield = 0
+                while bytes_read < iso_size:
+                    chunk_to_read = min(4 * 1024 * 1024, iso_size - bytes_read)
+                    chunk = proc.stdout.read(chunk_to_read)
+                    if not chunk:
+                        break
+                    sha.update(chunk)
+                    bytes_read += len(chunk)
+                    now = time.time()
+                    if now - last_yield >= 1.0:
+                        mb_done = bytes_read // (1024 * 1024)
+                        mb_total = iso_size // (1024 * 1024)
+                        pct = (bytes_read * 100 // iso_size) if iso_size > 0 else 0
+                        yield "INFO", f"Hashing source: {mb_done} MB of {mb_total} MB ({pct}%)", True
+                        last_yield = now
+                proc.stdout.close()
+                proc.wait()
+                offline_sha256 = sha.hexdigest().lower()
+            except Exception as e:
+                yield "ERROR", f"Failed to compute SHA256 on {source_dev}: {e}", False
+                return
+
+            yield "INFO", f"Source SHA256: {offline_sha256}", False
+            target_iso_name = self.image_name
+
+        else:
+            # Online Mode
+            yield "INFO", "Reading online update configuration...", False
+            default_ini = os.path.join(self.asset_folder, "TempOS.ini.default")
+            update_url = ""
+            if os.path.exists(default_ini):
+                with open(default_ini, 'r') as f:
+                    for line in f:
+                        line_s = line.strip()
+                        if line_s.lower().startswith("updateurl="):
+                            update_url = line_s.split("=", 1)[1].strip()
+                            break
+                            
+            if not update_url:
+                yield "ERROR", f"No updateurl found in {default_ini}", False
+                return
+                
+            yield "INFO", f"Fetching update info from {update_url}...", False
+            content = run_cmd(f"curl -s -f -L '{update_url}'")
+            if not content:
+                yield "ERROR", f"Failed to download update list from {update_url}", False
+                return
+                
+            updates = []
+            for line in content.splitlines():
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                parts = line.split()
+                if len(parts) >= 3:
+                    updates.append({
+                        'name': parts[0],
+                        'iso_hash': parts[1],
+                        'iso_url': parts[2],
+                        'zip_hash': parts[3] if len(parts) > 3 else "",
+                        'zip_url': parts[4] if len(parts) > 4 else ""
+                    })
+                    
+            if not updates:
+                yield "ERROR", "No valid update items found at update URL.", False
+                return
+                
+            def _sort_key(s):
+                return re.sub(r'(\d+)', lambda m: m.group(1).zfill(10), str(s))
+                
+            updates.sort(key=lambda x: _sort_key(x['name']), reverse=True)
+            latest_update = updates[0]
+            target_iso_name = f"{latest_update['name']}.iso"
+            yield "INFO", f"Selected online version: {latest_update['name']}", False
+
+        # -------------------------------------------------------------
+        # STEP 2: INSTALL VENTOY ON DESTINATION DRIVE
+        # -------------------------------------------------------------
+        ventoy_dir = "/Apps/Ventoy"
+        if not os.path.exists(ventoy_dir):
+            yield "ERROR", f"Ventoy tools directory {ventoy_dir} not found.", False
+            return
+            
+        yield "INFO", f"Unmounting all partitions on {main_device}...", False
+        for part in dest_drive.get('Partitions', []):
+            part_dev = part.get('PartitionDevice')
+            if part_dev:
+                run_cmd(f"umount {part_dev}", as_root=True)
+                
+        run_cmd("sync")
+        time.sleep(1)
+        
+        yield "INFO", f"Installing Ventoy to {main_device}...", False
+        orig_cwd = os.getcwd()
+        try:
+            os.chdir(ventoy_dir)
+            cmd = f"./Ventoy2Disk.sh -I {main_device} -L TempOS"
+            out = run_cmd(cmd, as_root=True, input_text="y\ny")
+            if "Install Ventoy to" not in out and "successfully" not in out:
+                yield "ERROR", f"Ventoy installation failed. Output:\n{out}", False
+                return
+        finally:
+            os.chdir(orig_cwd)
+            
+        yield "INFO", "Waiting for destination disk to settle...", False
+        run_cmd("sync")
+        time.sleep(6)
+        run_cmd("udevadm trigger", as_root=True)
+        time.sleep(2)
+
+        # -------------------------------------------------------------
+        # STEP 3: FIND AND MOUNT TempOS PARTITION
+        # -------------------------------------------------------------
+        dest_partition = None
+        for _ in range(6):
+            all_devs = get_all_block_devices()
+            for d in all_devs:
+                if d.get('type') == 'part' and d.get('label') == 'TempOS':
+                    pk = f"/dev/{d.get('pkname')}" if d.get('pkname') else ""
+                    p_path = d.get('path') or f"/dev/{d.get('kname')}"
+                    if pk == main_device or p_path.startswith(main_device):
+                        dest_partition = p_path
+                        break
+            if dest_partition:
+                break
+            time.sleep(1)
+
+        if not dest_partition:
+            yield "ERROR", f"Could not find 'TempOS' partition on {main_device} after Ventoy installation.", False
+            return
+
+        yield "INFO", f"Mounting destination partition {dest_partition}...", False
+        if os.path.ismount(dest_mount):
+            run_cmd(f"umount {dest_mount}", as_root=True)
+        os.makedirs(dest_mount, exist_ok=True)
+        
+        mount_res = run_cmd(f"mount {dest_partition} {dest_mount} -o rw,uid=1000,gid=1000", as_root=True)
+        if not os.path.ismount(dest_mount):
+            yield "ERROR", f"Failed to mount {dest_partition} to {dest_mount}: {mount_res}", False
+            return
+
+        # -------------------------------------------------------------
+        # STEP 4: CONFIGURE VENTOY ASSETS AND ventoy.json
+        # -------------------------------------------------------------
+        yield "INFO", "Configuring Ventoy assets on destination...", False
+        if not os.path.exists(dest_ventoy_dir):
+            os.makedirs(dest_ventoy_dir, exist_ok=True)
+            
+        src_ventoy_assets = os.path.join(self.asset_folder, "ventoy")
+        if os.path.exists(src_ventoy_assets):
+            for item in os.listdir(src_ventoy_assets):
+                s = os.path.join(src_ventoy_assets, item)
+                d = os.path.join(dest_ventoy_dir, item)
+                if os.path.isdir(s):
+                    if os.path.exists(d):
+                        shutil.rmtree(d)
+                    shutil.copytree(s, d)
+                else:
+                    shutil.copy2(s, d)
+
+        # Configure ventoy.json with default image
+        iso_rel_path = f"/{self.brand_name}/{target_iso_name}"
+        tmpl_path = os.path.join(self.asset_folder, "ventoy.json.template")
+        if os.path.exists(tmpl_path):
+            try:
+                with open(tmpl_path, 'r') as f:
+                    v_content = f.read()
+                v_content = v_content.replace("{DefaultImage}", iso_rel_path)
+                with open(dest_ventoy_json, 'w') as f:
+                    f.write(v_content)
+            except Exception as e:
+                yield "ERROR", f"Failed to create ventoy.json: {e}", False
+                return
+        else:
+            default_vjson = os.path.join(self.asset_folder, "ventoy.json.default")
+            if os.path.exists(default_vjson):
+                shutil.copy2(default_vjson, dest_ventoy_json)
+
+        run_cmd(f"chown -R 1000:1000 '{dest_ventoy_dir}'", as_root=True)
+
+        # -------------------------------------------------------------
+        # STEP 5: CREATE BRAND DIRECTORY AND INSTALL ISO
+        # -------------------------------------------------------------
+        os.makedirs(brand_dir, exist_ok=True)
+        dest_iso_path = os.path.join(brand_dir, target_iso_name)
+        dest_iso_part = dest_iso_path + ".part"
+        dest_sha_path = dest_iso_path + ".sha256"
+
+        for p in [dest_iso_part, dest_sha_path]:
+            if os.path.exists(p):
+                os.remove(p)
+
+        if mode == "offline":
+            yield "INFO", f"Copying ISO from {source_dev} ({iso_size // (1024 * 1024)} MB)...", False
+            try:
+                proc = subprocess.Popen(
+                    ["sudo", "head", "-c", str(iso_size), source_dev],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE
+                )
+                bytes_written = 0
+                last_yield = 0
+                with open(dest_iso_part, "wb") as f_out:
+                    while bytes_written < iso_size:
+                        chunk_to_read = min(4 * 1024 * 1024, iso_size - bytes_written)
+                        chunk = proc.stdout.read(chunk_to_read)
+                        if not chunk:
+                            break
+                        f_out.write(chunk)
+                        bytes_written += len(chunk)
+                        now = time.time()
+                        if now - last_yield >= 1.0:
+                            mb_done = bytes_written // (1024 * 1024)
+                            mb_total = iso_size // (1024 * 1024)
+                            pct = (bytes_written * 100 // iso_size) if iso_size > 0 else 0
+                            yield "INFO", f"Copying image: {mb_done} MB of {mb_total} MB ({pct}%)", True
+                            last_yield = now
+                proc.stdout.close()
+                proc.wait()
+            except Exception as e:
+                yield "ERROR", f"Failed copying ISO: {e}", False
+                return
+                
+            os.rename(dest_iso_part, dest_iso_path)
+            with open(dest_sha_path, 'w') as f:
+                f.write(offline_sha256)
+                
+            yield "INFO", "Verifying installed offline image...", False
+            run_cmd("sh -c 'echo 3 > /proc/sys/vm/drop_caches'", as_root=True)
+            ok, actual_hash = self._verify_file_sha256(dest_iso_path, offline_sha256)
+            if not ok:
+                yield "ERROR", f"Destination ISO verification failed! (Calculated: {actual_hash}, Expected: {offline_sha256})", False
+                return
+
+        else:
+            # Online Mode
+            yield "INFO", f"Downloading {target_iso_name}...", False
+            for res in self._download_with_progress(latest_update['iso_url'], dest_iso_part, "Downloading image"):
+                yield "INFO", res[0], res[1]
+
+            yield "INFO", "Verifying downloaded image...", False
+            with open(dest_iso_part + ".sha256", 'w') as f:
+                f.write(latest_update['iso_hash'])
+                
+            ok, actual_hash = self._verify_file_sha256(dest_iso_part, latest_update['iso_hash'])
+            if not ok:
+                yield "ERROR", f"ISO download verification failed! (Calculated: {actual_hash}, Expected: {latest_update['iso_hash']})", False
+                return
+
+            os.rename(dest_iso_part, dest_iso_path)
+            if os.path.exists(dest_iso_part + ".sha256"):
+                os.rename(dest_iso_part + ".sha256", dest_sha_path)
+
+            # Download external zip if present
+            if latest_update.get('zip_url'):
+                zip_name = f"{latest_update['name']}.zip"
+                dest_zip = os.path.join(brand_dir, zip_name)
+                dest_zip_part = dest_zip + ".part"
+                
+                yield "INFO", "Downloading external files...", False
+                for res in self._download_with_progress(latest_update['zip_url'], dest_zip_part, "Downloading external files"):
+                    yield "INFO", res[0], res[1]
+
+                yield "INFO", "Verifying external files...", False
+                with open(dest_zip_part + ".sha256", 'w') as f:
+                    f.write(latest_update['zip_hash'])
+                    
+                ok, actual_hash = self._verify_file_sha256(dest_zip_part, latest_update['zip_hash'])
+                if not ok:
+                    yield "ERROR", f"External files verification failed! (Calculated: {actual_hash})", False
+                    return
+
+                os.rename(dest_zip_part, dest_zip)
+                
+                yield "INFO", "Extracting external files...", False
+                try:
+                    shutil.unpack_archive(dest_zip, brand_dir)
+                except Exception as e:
+                    yield "ERROR", f"Failed to extract external files: {e}", False
+                    return
+                finally:
+                    if os.path.exists(dest_zip):
+                        os.remove(dest_zip)
+                    if os.path.exists(dest_zip_part + ".sha256"):
+                        os.remove(dest_zip_part + ".sha256")
+
+        # -------------------------------------------------------------
+        # STEP 6: CREATE STRUCTURE & SETTINGS
+        # -------------------------------------------------------------
+        yield "INFO", "Setting up folders and scripts...", False
+        
+        # Create /dest/brandname/AppsExt/scripts
+        scripts_dir = os.path.join(brand_dir, "AppsExt", "scripts")
+        os.makedirs(scripts_dir, exist_ok=True)
+        
+        # Create folders from folder= in TempOS.ini.default
+        default_ini = os.path.join(self.asset_folder, "TempOS.ini.default")
+        if os.path.exists(default_ini):
+            try:
+                with open(default_ini, 'r') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line.startswith("folder="):
+                            val = line.split("=", 1)[1].strip()
+                            if val:
+                                folder_name = val.split()[0].strip()
+                                if folder_name:
+                                    os.makedirs(os.path.join(brand_dir, folder_name), exist_ok=True)
+            except Exception as e:
+                yield "INFO", f"Notice: Error parsing folder entries: {e}", False
+
+        # Copy TempOS.ini.default to /dest/brandname/TempOS.ini
+        dest_ini = os.path.join(brand_dir, "TempOS.ini")
+        if os.path.exists(default_ini):
+            shutil.copy2(default_ini, dest_ini)
+            
+        run_cmd(f"chown -R 1000:1000 '{brand_dir}'", as_root=True)
+
+        # -------------------------------------------------------------
+        # STEP 7: CLEANUP, SYNC, UNMOUNT
+        # -------------------------------------------------------------
+        yield "INFO", "Syncing disks...", False
+        time.sleep(1)
+        run_cmd("sync")
+        
+        yield "INFO", "Unmounting destination partition...", False
+        run_cmd(f"umount {dest_mount}", as_root=True)
+        run_cmd("sync")
+        
+        if dest_drive['IsRemovable']:
+            yield "SUCCESS", f"Installation to {main_device} completed successfully. The drive can be removed.", False
+        else:
+            yield "SUCCESS", f"Installation to {main_device} completed successfully.", False
+
+
+def main():
+    app = InstallTemposApp()
+    app.mainloop()
+
+
+if __name__ == "__main__":
+    main()

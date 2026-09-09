@@ -1,0 +1,19 @@
+{
+    "control":[
+        { "VTOY_MAX_SEARCH_LEVEL": "1" },
+        { "VTOY_MENU_TIMEOUT": "2" },
+        { "VTOY_SECONDARY_TIMEOUT": "1" },
+        { "VTOY_DEFAULT_KBD_LAYOUT": "AZERTY" },
+        { "VTOY_DEFAULT_IMAGE": "{DefaultImage}" }
+    ],
+    "theme": {
+        "gfxmode": "800x600,auto",
+        "file": "/ventoy/tempostheme.txt",
+        "ventoy_left": "5%",
+        "ventoy_top": "95%",
+        "ventoy_color": "#000000",
+        "fonts": [
+            "/ventoy/unicode.pf2"
+        ]
+    }
+}

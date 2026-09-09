@@ -1,0 +1,17 @@
+wificonnect=CDJ_Hotspot|CdjNoodInternet
+homepage=https://duckduckgo.com/
+startpage=https://duckduckgo.com/
+favorite=Google https://google.be
+favorite=Scratch https://scratch.mit.edu/
+favorite=TurboWarp https://turbowarp.org/editor
+favorite=Microbit https://makecode.microbit.org/
+favorite=Arcade https://arcade.makecode.com/
+favorite=Gemini https://aistudio.google.com/prompts/new_chat
+favorite=Cdj-Belgie https://coderdojobelgium.be/nl
+launchbrowser=0
+verifyimage=1
+closestartup=5
+updatecheck=1
+updateurl=https://justapp.me/drive/tempos/public/coderdojo-updates.txt
+folder=Documenten Documenten
+folder=Downloads Downloads

@@ -1,0 +1,7 @@
+/backup
+/build
+/Jim
+/vm-build/vm-build.qcow2
+
+*.bak
+.idea/

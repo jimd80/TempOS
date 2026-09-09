@@ -1,0 +1,18 @@
+[Desktop Entry]
+Version=1.0
+Name[nl]=Beeldscherm
+Name=Display
+Comment[nl]=Scherminstellingen en -vormgeving bewerken
+Comment=Configure screen settings and layout
+Keywords[nl]=beeldscherm;instellingen;scherm;resolutie;verversen;snelheid;draaiing;extern;projectors;beeldschermen;LCD;CRT;HiDPI;
+Keywords=display;settings;screen;resolution;refresh;rate;rotation;external;projectors;monitors;LCD;CRT;HiDPI;
+Exec=xfce4-display-settings
+Icon=org.xfce.settings.display
+Terminal=false
+Type=Application
+Categories=XFCE;GTK;Settings;DesktopSettings;X-XFCE-SettingsDialog;X-XFCE-HardwareSettings;
+StartupNotify=true
+OnlyShowIn=XFCE;
+X-XfcePluggable=true
+X-XfceHelpPage=display
+X-XFCE-Source=file:///usr/share/applications/xfce-display-settings.desktop

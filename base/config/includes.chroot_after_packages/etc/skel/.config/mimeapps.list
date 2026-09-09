@@ -1,0 +1,19 @@
+[Default Applications]
+x-scheme-handler/http=xfce4-web-browser.desktop
+x-scheme-handler/https=xfce4-web-browser.desktop
+application/ogg=org.xfce.Parole.desktop
+video/mpeg=org.xfce.Parole.desktop
+audio/x-ms-wma=org.xfce.Parole.desktop
+audio/aac=org.xfce.Parole.desktop
+audio/ac3=org.xfce.Parole.desktop
+audio/flac=org.xfce.Parole.desktop
+
+[Added Associations]
+x-scheme-handler/http=xfce4-web-browser.desktop;
+x-scheme-handler/https=xfce4-web-browser.desktop;
+application/ogg=org.xfce.Parole.desktop;
+video/mpeg=org.xfce.Parole.desktop;
+audio/x-ms-wma=org.xfce.Parole.desktop;
+audio/aac=org.xfce.Parole.desktop;
+audio/ac3=org.xfce.Parole.desktop;
+audio/flac=org.xfce.Parole.desktop;

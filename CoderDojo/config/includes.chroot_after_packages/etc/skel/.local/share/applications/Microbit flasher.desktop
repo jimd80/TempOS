@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Micro:bit Flasher
+Comment=
+Exec=microbit batch flasher.py
+Icon=tablet
+Path=
+Terminal=false
+StartupNotify=false
+Categories=Development;

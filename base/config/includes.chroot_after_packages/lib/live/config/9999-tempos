@@ -1,0 +1,13 @@
+#!/bin/sh
+
+. /lib/live/config.sh
+
+## live-config(7) - System Configuration Components
+## Copyright (C) 2019-2020 The Debian Live team
+## Copyright (C) 2019 Raphael Hertzog <raphael@offensive-security.com>
+##
+## This program comes with ABSOLUTELY NO WARRANTY; for details see COPYING.
+## This is free software, and you are welcome to redistribute it
+## under certain conditions; see COPYING for details.
+
+export PATH=($PATH):/Apps/Scripts:/AppsExt/Scripts

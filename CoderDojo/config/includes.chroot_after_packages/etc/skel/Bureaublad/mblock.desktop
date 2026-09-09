@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Makeblock mBlock
+Exec=/usr/bin/chromium --start-fullscreen "https://ide.mblock.cc"
+Terminal=false
+X-MultipleArgs=false
+Type=Application
+Icon=/Apps/Webapps/mblock-icon.png
+Categories=Development;
+StartupWMClass=chromium
+StartupNotify=true

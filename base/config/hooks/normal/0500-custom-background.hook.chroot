@@ -1,0 +1,17 @@
+#!/bin/sh
+set -e
+
+CUSTOM_BG="/usr/share/backgrounds/TempOS_Background.jpg"
+XFCE_BG_DIR="/usr/share/backgrounds/xfce"
+
+if [ ! -d "$XFCE_BG_DIR" ] || [ ! -f "$CUSTOM_BG" ]; then
+    echo "Custom background setup skipped: Directory or Image not found."
+    exit 0
+fi
+
+echo "Overwriting Xfce default backgrounds with custom image..."
+
+find "$XFCE_BG_DIR" -type f \( -name "*.png" -o -name "*.jpg" -o -name "*.jpeg" -o -name "*.svg" \) | while read -r FILE; do
+    rm -f "$FILE"
+    ln -s "$CUSTOM_BG" "$FILE"
+done

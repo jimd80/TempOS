@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=WhatsApp
+Comment=WhatsApp Messenger
+Exec=chromium --app=https://web.whatsapp.com/
+Terminal=false
+Type=Application
+Icon=/AppsExt/Webapps/WhatsApp.png
+Categories=Network;
+StartupNotify=true

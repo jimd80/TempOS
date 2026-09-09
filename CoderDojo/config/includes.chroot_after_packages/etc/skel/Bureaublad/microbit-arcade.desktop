@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Microbit Arcade
+Exec=/usr/bin/chromium --start-fullscreen "https://arcade.makecode.com"
+Terminal=false
+X-MultipleArgs=false
+Type=Application
+Icon=/Apps/Webapps/makecode-arcade-icon.png
+Categories=Development;
+StartupWMClass=chromium
+StartupNotify=true

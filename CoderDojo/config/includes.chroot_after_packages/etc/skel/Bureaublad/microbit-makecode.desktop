@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Microbit Makecode
+Exec=/usr/bin/chromium --start-fullscreen "https://makecode.microbit.org"
+Terminal=false
+X-MultipleArgs=false
+Type=Application
+Icon=/Apps/Webapps/microbit-icon2.png
+Categories=Development;
+StartupWMClass=chromium
+StartupNotify=true

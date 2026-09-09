@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Scratch
+Exec=/usr/bin/chromium --start-fullscreen "https://scratch.mit.edu/projects/editor/"
+Terminal=false
+X-MultipleArgs=false
+Type=Application
+Icon=/Apps/Webapps/scratch-icon.png
+Categories=Development;
+StartupWMClass=chromium
+StartupNotify=true

@@ -1,0 +1,1 @@
+If you see this file, /AppsExt was not mounted from the medium. This is normal when booted with removable medium option.

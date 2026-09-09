@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=TempOS Tools
+Comment=Tools for TempOS
+Exec=tools
+Icon=cpu-x
+Type=Application
+Categories=;System;
+Terminal=true
+Keywords=system;

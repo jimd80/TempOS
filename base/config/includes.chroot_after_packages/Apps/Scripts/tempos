@@ -1,0 +1,156 @@
+#!/usr/bin/env python3
+# Tools (command line and gui) to manage a standers (TempOS) or customized (CoderDojo, Resque, ...) debian 13 live image
+import sys
+import subprocess
+import time
+import tkinter as tk
+from tkinter import ttk, messagebox
+from lib.NetInfo import NetInfo
+from lib.MemInfo import MemInfo
+from lib.StorageInfo import StorageInfo
+from lib.Settings import Settings
+from lib.StartupWindow import StartupWindow
+from lib.TempOsTool import TempOsTool
+from lib.startup_logic import run_startup_sequence
+from lib.ops import perform_power_action
+
+def show_non_tempos_dialog():
+    root = tk.Tk()
+    root.title("TempOS")
+    ws, hs = root.winfo_screenwidth(), root.winfo_screenheight()
+    w, h = 560, 180
+    x, y = int((ws - w) / 2), int((hs - h) / 2)
+    root.geometry(f"{w}x{h}+{x}+{y}")
+    root.resizable(False, False)
+
+    msg = (
+        "This system is booted / installed directly as iso image. "
+        "You can continue but things like update, external apps, mapped storage wil not work.\n\n"
+        "To have full functionality, you can install the system to another drive from here."
+    )
+
+    lbl = ttk.Label(root, text=msg, wraplength=520, justify='left', font=("TkDefaultFont", 10))
+    lbl.pack(expand=True, fill='both', padx=20, pady=(20, 10))
+
+    btn_frame = ttk.Frame(root)
+    btn_frame.pack(fill='x', padx=20, pady=(0, 20))
+
+    btn_subframe = ttk.Frame(btn_frame)
+    btn_subframe.pack()
+
+    def on_close():
+        root.destroy()
+        sys.exit(0)
+
+    def on_install():
+        root.destroy()
+        try:
+            subprocess.Popen(["/Apps/Scripts/install_tempos"])
+        except Exception:
+            try:
+                subprocess.Popen("/Apps/Scripts/install_tempos", shell=True)
+            except Exception:
+                pass
+        sys.exit(0)
+
+    btn_close = ttk.Button(btn_subframe, text="Close", command=on_close, width=12)
+    btn_close.pack(side='left', padx=10)
+
+    btn_install = ttk.Button(btn_subframe, text="Install", command=on_install, width=12)
+    btn_install.pack(side='left', padx=10)
+
+    root.protocol("WM_DELETE_WINDOW", on_close)
+    root.mainloop()
+    sys.exit(0)
+
+def main():
+    if len(sys.argv) > 1:
+        arg = sys.argv[1]
+        
+        if arg == "-shutdown":
+            perform_power_action("shutdown")
+            return
+        elif arg == "-restart":
+            perform_power_action("reboot")
+            return
+        elif arg == "-info":
+            print(f"=== TempOS System Information ===\n[Network]\n{NetInfo()}\n\n[Memory]\n{MemInfo().get_report()}\n\n[Storage]\n{StorageInfo().get_summary()}")
+            return
+        elif arg == "-startup":
+            storage = StorageInfo()
+            if not storage.boot_is_tempos:
+                print("This system is booted / installed directly as iso image. You can continue but things like update, external apps, mapped storage wil not work.")
+                print("To have full functionality, you can install the system to another drive from here.")
+                sys.exit(1)
+            
+            settings = Settings(storage)
+            print("Running CLI Startup Sequence...")
+            exit_code = 0
+            last_was_replace = False
+            
+            for status, msg, replace in run_startup_sequence(storage, settings):
+                is_wait = status in ["WAIT_NET", "WAIT_NET_WARN"]
+                if status == "WAIT_NET_WARN":
+                    display_status = "WARNING"
+                elif status == "UPDATE_AVAILABLE":
+                    display_status = "INFO"
+                else:
+                    display_status = status
+                
+                prefix = ""
+                if display_status in ["ERROR", "WARNING"]: 
+                    prefix = "!! "
+                    if display_status == "ERROR":
+                        exit_code = 1
+                elif display_status == "SUCCESS": 
+                    prefix = "OK "
+                
+                if replace:
+                    # In CLI we handle 'replace' using carriage return to prevent log spam
+                    print(f"\r{prefix}[{display_status}] {msg}\033[K", end="", flush=True)
+                    last_was_replace = True
+                else:
+                    if last_was_replace:
+                        print() # Newline if previous was inline
+                    print(f"{prefix}[{display_status}] {msg}")
+                    last_was_replace = False
+                    
+                if is_wait:
+                    time.sleep(1)
+            
+            if last_was_replace:
+                print()
+                
+            sys.exit(exit_code)
+        elif arg == "-startupgui":
+            storage = StorageInfo()
+            if not storage.boot_is_tempos:
+                show_non_tempos_dialog()
+                sys.exit(0)
+
+            settings = Settings(storage)
+            app = StartupWindow(storage, settings)
+            app.mainloop()
+            return
+        else:
+            print(f"Unknown argument: {arg}")
+            print("Usage: tempos.py [-info | -shutdown | -restart | -startup | -startupgui]")
+            return
+
+    # Gather Info
+    net_info = NetInfo()
+    mem_info = MemInfo()
+    storage_info = StorageInfo()
+    
+    if not storage_info.boot_is_tempos:
+        show_non_tempos_dialog()
+        sys.exit(0)
+
+    settings = Settings(storage_info)
+
+    # GUI Mode
+    app = TempOsTool(net_info, mem_info, storage_info, settings)
+    app.mainloop()
+
+if __name__ == "__main__":
+    main()
