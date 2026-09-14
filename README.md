@@ -34,7 +34,7 @@ Use it as a quick desktop, rescue session or a classroom OS where experiments ca
 
 ## External Applications
 
-The TemoOS boot drive is ideally as small and unbloaded as possible. However, sometimes you want to run large applications like 3D slicers, code environments, local LLM's, ...
+The TempOS boot drive is ideally as small and unbloaded as possible. However, sometimes you want to run large applications like 3D slicers, code environments, local LLM's, ...
 
 These apps can by put directly on the usb drive under /(brandname)/AppsExt so the main image stays small and does not need to be build every time again to include or update these (large) apps
 
@@ -44,7 +44,7 @@ On start, Tempos scans the AppsExt folder, looking for .desktop files (these are
 
 ## Installation
 
-### Installation (cloning) when you already have a TemoOS (thumb)drive
+### Installation (cloning) when you already have a TempOS (thumb)drive
 
 1. Boot from the TempOS (thumb)drive
 2. Go to Start menu -> Development (Ontwikkeling) -> TempOS Tools
