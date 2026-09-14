@@ -1,4 +1,4 @@
-from lib.utils import run_cmd, to_mb
+from libtempos.utils import run_cmd, to_mb
 
 class MemInfo:
     def __init__(self):

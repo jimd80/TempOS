@@ -5,7 +5,8 @@ import time
 import uuid
 import hashlib
 import json
-from lib.utils import run_cmd
+import shutil
+from libtempos.utils import run_cmd
 
 def perform_power_action(action):
     print("Closing applications...")
@@ -63,8 +64,10 @@ def MountTempOsBootMedium(storage, unmount=False):
              return True, "Already mounted at target."
 
         run_cmd(f"mkdir -p {storage.mount_point}", as_root=True)
+        run_cmd(f"chown 1000:1000 {storage.mount_point}", as_root=True)
         cmd = f"mount {storage.boot_mount_device} {storage.mount_point} -o rw,uid=1000,gid=1000"
         res = run_cmd(cmd, as_root=True)
+        run_cmd(f"chown 1000:1000 {storage.mount_point}", as_root=True)
         
         if os.path.ismount(storage.mount_point):
             return True, "Mounted successfully."
@@ -223,3 +226,55 @@ def create_bookmarks(storage, settings):
 
     with open(bookmarks_file, 'w') as f:
         json.dump(data, f, indent=3)
+
+def sync_root_items(src_dir, dst_dir, move=False):
+    """
+    Synchronizes root-level items (files and folders) from src_dir into dst_dir:
+    - Iterates over items in src_dir
+    - If item exists in dst_dir, deletes it (directory with contents or file)
+    - Copies (or moves) item from src_dir to dst_dir
+    - Items existing in dst_dir but not in src_dir are preserved
+    """
+    if not os.path.exists(src_dir):
+        return
+
+    if not os.path.exists(dst_dir):
+        try:
+            os.makedirs(dst_dir, exist_ok=True)
+        except Exception:
+            run_cmd(f"mkdir -p '{dst_dir}'", as_root=True)
+
+    try:
+        items = os.listdir(src_dir)
+    except Exception:
+        return
+
+    for item in items:
+        s_item = os.path.join(src_dir, item)
+        d_item = os.path.join(dst_dir, item)
+
+        if os.path.lexists(d_item):
+            try:
+                if os.path.isdir(d_item) and not os.path.islink(d_item):
+                    shutil.rmtree(d_item)
+                else:
+                    os.unlink(d_item)
+            except Exception:
+                run_cmd(f"rm -rf '{d_item}'", as_root=True)
+
+        try:
+            if move:
+                shutil.move(s_item, d_item)
+            else:
+                if os.path.isdir(s_item) and not os.path.islink(s_item):
+                    shutil.copytree(s_item, d_item, symlinks=True)
+                else:
+                    shutil.copy2(s_item, d_item, follow_symlinks=False)
+        except Exception:
+            if move:
+                run_cmd(f"mv '{s_item}' '{d_item}'", as_root=True)
+            else:
+                if os.path.isdir(s_item):
+                    run_cmd(f"cp -a '{s_item}' '{d_item}'", as_root=True)
+                else:
+                    run_cmd(f"cp -p '{s_item}' '{d_item}'", as_root=True)

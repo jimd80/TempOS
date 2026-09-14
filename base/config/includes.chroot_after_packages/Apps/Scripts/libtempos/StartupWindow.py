@@ -1,9 +1,9 @@
 import os
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox
-from lib.startup_logic import run_startup_sequence
-from lib.update_logic import run_update_sequence
-from lib.ops import perform_power_action
+from libtempos.startup_logic import run_startup_sequence
+from libtempos.update_logic import run_update_sequence
+from libtempos.ops import perform_power_action
 
 class StartupWindow(tk.Tk):
     def __init__(self, storage, settings):
@@ -21,6 +21,11 @@ class StartupWindow(tk.Tk):
         self.upd_seq = None
         self.update_has_error = False
         
+        # Configure styles
+        style = ttk.Style(self)
+        style.configure("Green.TButton", foreground="green")
+        style.map("Green.TButton", foreground=[('disabled', 'gray'), ('active', 'green'), ('!disabled', 'green')])
+
         self.log = scrolledtext.ScrolledText(self, wrap=tk.WORD, font=("Consolas", 10))
         self.log.pack(expand=True, fill='both', padx=5, pady=5)
         self.log.tag_config("ERROR", foreground="red")
@@ -36,7 +41,7 @@ class StartupWindow(tk.Tk):
         self.btn = ttk.Button(self.btn_subframe, text="Close", command=self.on_btn_click, state='disabled')
         self.btn.pack(side='left', padx=5)
 
-        self.btn_update = ttk.Button(self.btn_subframe, text="Download and install update", command=self.on_download_update)
+        self.btn_update = ttk.Button(self.btn_subframe, text="Download and install update", command=self.on_download_update, style="Green.TButton")
         # Not packed initially
 
         self.btn_reboot = ttk.Button(self.btn_subframe, text="Reboot System", command=self.on_reboot)
@@ -153,6 +158,8 @@ class StartupWindow(tk.Tk):
             'verify_src': False,
             'verify_dst': True,
             'use_settings': False,
+            'update_apps': True,
+            'copy_folders': False,
             'boot_default': True,
             'cleanup_old': True
         }

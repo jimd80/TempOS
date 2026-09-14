@@ -1,7 +1,7 @@
 import re
 import time
 from urllib.parse import urlparse
-from lib.utils import run_cmd
+from libtempos.utils import run_cmd
 
 class NetInfo:
     def __init__(self):

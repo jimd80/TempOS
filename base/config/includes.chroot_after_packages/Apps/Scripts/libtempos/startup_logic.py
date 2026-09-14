@@ -3,10 +3,10 @@ import shutil
 import time
 import hashlib
 import re
-from lib.utils import run_cmd
-from lib.ops import MountTempOsBootMedium, verify_image_file, verify_booted_image, add_wifi_adaptors, create_bookmarks
-from lib.NetInfo import NetInfo
-from lib.update_logic import check_online_update
+from libtempos.utils import run_cmd
+from libtempos.ops import MountTempOsBootMedium, verify_image_file, verify_booted_image, add_wifi_adaptors, create_bookmarks
+from libtempos.NetInfo import NetInfo
+from libtempos.update_logic import check_online_update
 
 def run_startup_sequence(storage, settings):
     """

@@ -1,6 +1,6 @@
 # TempOS
 
-**TempOS** is a Debian-based graphical desktop live environment for USB drives designed for temporary, disposable sessions.
+**TempOS** is a Debian-based graphical desktop live environment for USB thumbdrives designed for temporary, disposable sessions.
 
 Use it as a quick desktop, rescue session or a classroom OS where experiments can be conducted without altering, degrading, or bloating the operating system for subsequent sessions.
 
@@ -32,22 +32,42 @@ Use it as a quick desktop, rescue session or a classroom OS where experiments ca
 
 ---
 
-## Project Structure
+## External Applications
 
-```text
-├── base/               # Standard TempOS configuration and assets (cannot be built on its own)
-├── TempOS/             # Empty profile directory used to build the standard base image
-├── CoderDojo/          # Customized, rebranded profile layered over base
-├── build/              # Output directory with merged configs and build artifacts
-│   ├── TempOS/
-│   └── CoderDojo/
-├── ventoy/             # Ventoy configuration and theme files copied to the USB drive
-└── vm-build/           # VM setup and qcow2 image
-```
+The TemoOS boot drive is ideally as small and unbloaded as possible. However, sometimes you want to run large applications like 3D slicers, code environments, local LLM's, ...
+
+These apps can by put directly on the usb drive under /(brandname)/AppsExt so the main image stays small and does not need to be build every time again to include or update these (large) apps
+
+On start, Tempos scans the AppsExt folder, looking for .desktop files (these are like app shortcuts) and will automatically put these on the desktop screen. The AppsExt folder is mapped to /AppsExt in the OS
 
 ---
 
 ## Installation
+
+### Installation (cloning) when you already have a TemoOS (thumb)drive
+
+1. Boot from the TempOS (thumb)drive
+2. Go to Start menu -> Development (Ontwikkeling) -> TempOS Tools
+3. Select tab Install To. If needed, insert a fresh USB thumb drive to install to.
+4. Select the destination drive. This can be an internal drive or the USB drive you just inserted
+5. Optional:
+   - If you do not want the settings (like bookmarks, wifi passwords, ...) from your source drive to be used, select "Default Settings"
+   - If you also want to copy the mapped folders (like documents, downloads), check this option
+   - If you don't want to include the external apps, uncheck this option
+6. Press Start Installation and wait until finisched
+7. You can install the more thumbdrive without rebooting
+
+### Installation via Installer Image (Start here for very first time)
+
+1. Download the TempOS (or branded) `.iso` file and write it to a USB drive:
+   ```bash
+   dd if=CoderDojo-13.6.0.iso of=/dev/sdx bs=4M status=progress oflag=sync
+   ```
+   *(Replace `/dev/sdx` with your target USB drive).*
+
+2. Boot from the USB drive. An installation wizard will appear on startup.
+3. Follow the wizard to install TempOS onto a secondary USB drive or an internal drive. *(Note: You cannot install directly onto the live drive you booted from).*
+
 
 ### Manual Installation (Ventoy)
 
@@ -63,31 +83,42 @@ Use it as a quick desktop, rescue session or a classroom OS where experiments ca
 5. Copy the `.iso` and `.iso.sha256` release files into the branding folder.
 6. Edit `ventoy/ventoy.json` to configure the default `.iso` image to boot.
 
-#### Example USB Drive Layout
+## Updating
 
-```text
-/CoderDojo/
-├── AppsExt/
-├── CoderDojo-13.6.0.iso
-└── CoderDojo-13.6.0.iso.sha256
-/ventoy/
-├── select_c.png
-├── tempos800x600.png
-├── tempostheme.txt
-├── unicode.pf2
-└── ventoy.json
-```
+### Online update on startup
 
-### Installation via Installer Image
+When the setting "Check for update on start" is active, there will be an "Update" button on the startup screen as soon as an update is available (fast internet required). Be aware that is you have set an auto close time for this startup window, you actively need to watch the boot process to catch the button. Updating is never automatic as this could cause an unwanted interuption and reboot.
 
-1. Download the TempOS (or branded) `.iso` file and write it to a USB drive:
-   ```bash
-   dd if=CoderDojo-13.6.0.iso of=/dev/sdx bs=4M status=progress oflag=sync
-   ```
-   *(Replace `/dev/sdx` with your target USB drive).*
+When updating on startup, this will default update the external apps. If you don't want this, follow the online update manually below.
 
-2. Boot from the USB drive. An installation wizard will appear on startup.
-3. Follow the wizard to install TempOS onto a secondary USB drive or an internal drive. *(Note: You cannot install directly onto the live drive you booted from).*
+### Online update manually
+
+1. Go to Start menu -> Development (Ontwikkeling) -> TempOS Tools
+2. Go to the Update tab
+3. Click on the first [Check for update] button (upper right of the window)
+4. If you want to reset to the latest default settings (bookmarks, wifi ...) then check "Use source settings"
+5. If you don't want to include the external apps, uncheck this option
+6. Press update and reboot
+
+### Offline update
+
+On poor wifi or when no internet available, or when you have added external apps on a thumbdrive, you can update a booted system from another TempOS thumb drive
+
+1. Go to Start menu -> Development (Ontwikkeling) -> TempOS Tools
+2. Go to the Update tab
+3. Insert the source drive, and click on the second [Check for update] button
+4. If you want to use (and overwrite) the sessings from the source drive, then check "Use source settings"
+5. If you want to copy the mapped folders (documents, downloads) from the source drice, then check "Update mapped folders"
+6. If you don't want to include the external apps, uncheck this option
+7. Press update and reboot
+
+### Offline update a destination thumbdrive
+
+If you want to update other thumb drives (so not the booted system itself)
+
+1. Go to Start menu -> Development (Ontwikkeling) -> TempOS Tools
+2. Go to the install tab
+3. Select "Update" on installation type
 
 ---
 
@@ -121,6 +152,38 @@ curl -I -m 3 http://google.be
   HTTP/1.1 302 Found
   Location: http://10.x.x.x:9997/user/guest_tou.asp?origurl=http%3a%2f%2fgoogle%2ebe%2f&langname=nl_NL&logo=%2fwritable%2fdata%2fwsgclient%2flogo_1
   ```
+
+---
+
+#### Example USB Drive Layout
+
+```text
+/CoderDojo/
+├── AppsExt/
+├── CoderDojo-13.6.0.iso
+└── CoderDojo-13.6.0.iso.sha256
+/ventoy/
+├── select_c.png
+├── tempos800x600.png
+├── tempostheme.txt
+├── unicode.pf2
+└── ventoy.json
+```
+
+---
+
+## Project Structure
+
+```text
+├── base/               # Standard TempOS configuration and assets (cannot be built on its own)
+├── TempOS/             # Empty profile directory used to build the standard base image
+├── CoderDojo/          # Customized, rebranded profile layered over base
+├── build/              # Output directory with merged configs and build artifacts
+│   ├── TempOS/
+│   └── CoderDojo/
+├── ventoy/             # Ventoy configuration and theme files copied to the USB drive
+└── vm-build/           # VM setup and qcow2 image
+```
 
 ---
 

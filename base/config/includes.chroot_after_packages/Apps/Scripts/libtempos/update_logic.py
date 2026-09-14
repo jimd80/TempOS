@@ -4,8 +4,8 @@ import shutil
 import time
 import urllib.request
 import glob
-from lib.utils import run_cmd
-from lib.ops import verify_image_file, set_ventoy_default
+from libtempos.utils import run_cmd, to_mb
+from libtempos.ops import verify_image_file, set_ventoy_default, sync_root_items
 
 def check_online_update(url):
     """
@@ -47,7 +47,8 @@ def check_partition_update(storage, partition_device):
     else:
         mount_point = storage.mount_point_update
         if not os.path.exists(mount_point):
-            run_cmd(f"mkdir -p {mount_point}", as_root=True)
+            run_cmd(f"mkdir -p '{mount_point}'", as_root=True)
+            run_cmd(f"chown 1000:1000 '{mount_point}'", as_root=True)
         
         if os.path.ismount(mount_point):
             src = run_cmd(f"findmnt -n -o SOURCE {mount_point}").strip()
@@ -109,6 +110,33 @@ def run_update_sequence(storage, options):
         yield "ERROR", f"Destination directory missing: {dest_dir}", False
         return
 
+    # Check free space on mount_point (requires >= 2 * current ISO size)
+    curr_iso_size = 0
+    if storage.tempos_image:
+        curr_iso_path = os.path.join(dest_dir, storage.tempos_image)
+        if os.path.exists(curr_iso_path):
+            curr_iso_size = os.path.getsize(curr_iso_path)
+
+    if curr_iso_size == 0 and storage.images:
+        for img in storage.images:
+            if img.get('isCurrent') and os.path.exists(img['path']):
+                curr_iso_size = os.path.getsize(img['path'])
+                break
+        if curr_iso_size == 0 and os.path.exists(storage.images[0]['path']):
+            curr_iso_size = os.path.getsize(storage.images[0]['path'])
+
+    if curr_iso_size > 0:
+        mp = storage.mount_point if os.path.ismount(storage.mount_point) else dest_dir
+        try:
+            st = os.statvfs(mp)
+            free_bytes = st.f_bavail * st.f_frsize
+            required_bytes = curr_iso_size * 2
+            if free_bytes < required_bytes:
+                yield "ERROR", f"Not enough free space on {storage.mount_point}. Required: {to_mb(required_bytes)} MB (2x ISO size), Available: {to_mb(free_bytes)} MB.", False
+                return
+        except Exception as e:
+            print(f"Error checking free space: {e}")
+
     if item['type'] == 'local':
         src_path = item['path']
         src_dir = os.path.dirname(src_path)
@@ -118,7 +146,7 @@ def run_update_sequence(storage, options):
 
         yield "INFO", f"Starting local update from {src_path}...", False
 
-        if options['verify_src']:
+        if options.get('verify_src'):
             yield "INFO", "Verifying source image...", False
             ok, msg = verify_image_file(storage, src_path)
             if not ok:
@@ -134,88 +162,100 @@ def run_update_sequence(storage, options):
             yield "ERROR", f"Copy failed: {e}", False
             return
 
-        if options['verify_dst']:
+        if options.get('verify_dst'):
             yield "INFO", "Verifying installed image...", False
             ok, msg = verify_image_file(storage, dest_path)
             if not ok:
                 yield "ERROR", f"Destination verification failed: {msg}", False
                 return
 
-        if options['use_settings']:
+        if options.get('use_settings'):
             yield "INFO", "Updating settings (TempOS.ini)...", False
             src_ini = os.path.join(src_dir, "TempOS.ini")
             if os.path.exists(src_ini): shutil.copy2(src_ini, os.path.join(dest_dir, "TempOS.ini"))
 
-        src_apps = os.path.join(src_dir, "AppsExt")
-        dest_apps = os.path.join(dest_dir, "AppsExt")
-        if os.path.exists(src_apps):
-            yield "INFO", "Syncing AppsExt...", False
-            if not os.path.exists(dest_apps): os.makedirs(dest_apps)
-            run_cmd(["rsync", "-a", "--delete", f"{src_apps}/", dest_apps], as_root=True)
+        if options.get('update_apps', True):
+            src_apps = os.path.join(src_dir, "AppsExt")
+            dest_apps = os.path.join(dest_dir, "AppsExt")
+            if os.path.exists(src_apps):
+                yield "INFO", "Syncing AppsExt...", False
+                sync_root_items(src_apps, dest_apps, move=False)
+                run_cmd(f"chown -R 1000:1000 '{dest_apps}'", as_root=True)
+
+        if options.get('copy_folders'):
+            folders = options.get('folders', [])
+            yield "INFO", "Syncing mapped folders...", False
+            for folder_entry in folders:
+                if not folder_entry: continue
+                name = folder_entry[0].strip() if isinstance(folder_entry, (list, tuple)) else str(folder_entry).strip()
+                if not name: continue
+                src_f = os.path.join(src_dir, name)
+                dst_f = os.path.join(dest_dir, name)
+                if os.path.exists(src_f):
+                    yield "INFO", f"Syncing {name}...", False
+                    sync_root_items(src_f, dst_f, move=False)
+                    run_cmd(f"chown -R 1000:1000 '{dst_f}'", as_root=True)
 
     else: # ONLINE
         iso_name = f"{item['name']}.iso"
-        zip_name = f"{item['name']}.zip"
         dest_path = os.path.join(dest_dir, iso_name)
-        dest_zip = os.path.join(dest_dir, zip_name)
         iso_part = dest_path + ".part"
-        zip_part = dest_zip + ".part"
 
-        for p in [iso_part, zip_part, iso_part + ".sha256", zip_part + ".sha256"]:
+        for p in [iso_part, iso_part + ".sha256"]:
             if os.path.exists(p): os.remove(p)
 
         # Download ISO
         for res in _download_with_progress(item['iso_url'], iso_part, "Downloading image"):
-            # res is (msg, replace_bool)
             yield "INFO", res[0], res[1]
 
         # Verify
         with open(iso_part + ".sha256", 'w') as f: f.write(item['iso_hash'])
-        if options['verify_dst']:
+        if options.get('verify_dst'):
             yield "INFO", "Verifying downloaded image...", False
             ok, msg = verify_image_file(storage, iso_part)
             if not ok:
                 yield "ERROR", f"ISO Download verification failed: {msg}", False
                 return
 
-        # Download ZIP
-        if item.get('zip_url'):
-            for res in _download_with_progress(item['zip_url'], zip_part, "Downloading external files"):
-                yield "INFO", res[0], res[1]
-            
-            yield "INFO", "Verifying downloaded external files...", False
-            with open(zip_part + ".sha256", 'w') as f: f.write(item['zip_hash'])
-            if options['verify_dst']:
-                ok, msg = verify_image_file(storage, zip_part)
-                if not ok:
-                    yield "ERROR", f"ZIP Download verification failed: {msg}", False
-                    return
-            
-            os.rename(zip_part, dest_zip)
-            if os.path.exists(zip_part + ".sha256"): os.rename(zip_part + ".sha256", dest_zip + ".sha256")
-
         os.rename(iso_part, dest_path)
         if os.path.exists(iso_part + ".sha256"): os.rename(iso_part + ".sha256", dest_path + ".sha256")
         fname = iso_name
 
-        # Post-Download processing for Online
-        if os.path.exists(dest_zip):
-            yield "INFO", "Extracting files...", False
-            ini_file = os.path.join(dest_dir, "TempOS.ini")
-            apps_dir = os.path.join(dest_dir, "AppsExt")
-            
-            if os.path.exists(ini_file): os.rename(ini_file, ini_file + ".bak")
-            if os.path.exists(apps_dir):
-                if os.path.exists(apps_dir + ".bak"): shutil.rmtree(apps_dir + ".bak")
-                os.rename(apps_dir, apps_dir + ".bak")
-            
+        # Download ZIP only if Use source settings or Update external apps is checked
+        need_zip = bool(item.get('zip_url') and (options.get('use_settings') or options.get('update_apps', True)))
+        if need_zip:
+            updtemp = storage.updtemp_location
+            if os.path.exists(updtemp):
+                shutil.rmtree(updtemp, ignore_errors=True)
+            os.makedirs(updtemp, exist_ok=True)
+
+            zip_name = f"{item['name']}.zip"
+            dest_zip = os.path.join(updtemp, zip_name)
+            zip_part = dest_zip + ".part"
+
+            for p in [zip_part, zip_part + ".sha256"]:
+                if os.path.exists(p): os.remove(p)
+
+            for res in _download_with_progress(item['zip_url'], zip_part, "Downloading external files"):
+                yield "INFO", res[0], res[1]
+
+            yield "INFO", "Verifying downloaded external files...", False
+            with open(zip_part + ".sha256", 'w') as f: f.write(item['zip_hash'])
+            if options.get('verify_dst'):
+                ok, msg = verify_image_file(storage, zip_part)
+                if not ok:
+                    shutil.rmtree(updtemp, ignore_errors=True)
+                    yield "ERROR", f"ZIP Download verification failed: {msg}", False
+                    return
+
+            os.rename(zip_part, dest_zip)
+            if os.path.exists(zip_part + ".sha256"): os.rename(zip_part + ".sha256", dest_zip + ".sha256")
+
+            yield "INFO", "Extracting external files...", False
             try:
-                shutil.unpack_archive(dest_zip, dest_dir)
+                shutil.unpack_archive(dest_zip, updtemp)
             except Exception as e:
-                if os.path.exists(ini_file + ".bak") and not os.path.exists(ini_file):
-                    os.rename(ini_file + ".bak", ini_file)
-                if os.path.exists(apps_dir + ".bak") and not os.path.exists(apps_dir):
-                    os.rename(apps_dir + ".bak", apps_dir)
+                shutil.rmtree(updtemp, ignore_errors=True)
                 yield "ERROR", f"Failed to unzip external files: {e}", False
                 return
             finally:
@@ -226,21 +266,24 @@ def run_update_sequence(storage, options):
                     try: os.remove(dest_zip + ".sha256")
                     except Exception: pass
 
-            if not os.path.exists(apps_dir) and os.path.exists(apps_dir + ".bak"):
-                os.rename(apps_dir + ".bak", apps_dir)
-            elif os.path.exists(apps_dir + ".bak"):
-                shutil.rmtree(apps_dir + ".bak")
-            
-            # Restore settings if zip didn't have them OR user didn't check 'Use source settings'
-            if not os.path.exists(ini_file) or not options['use_settings']:
-                if os.path.exists(ini_file + ".bak"):
-                    if os.path.exists(ini_file): os.remove(ini_file)
-                    os.rename(ini_file + ".bak", ini_file)
-            elif os.path.exists(ini_file + ".bak"):
-                os.remove(ini_file + ".bak")
+            if options.get('use_settings'):
+                src_ini = os.path.join(updtemp, "TempOS.ini")
+                if os.path.exists(src_ini):
+                    yield "INFO", "Updating settings (TempOS.ini)...", False
+                    shutil.move(src_ini, os.path.join(dest_dir, "TempOS.ini"))
+
+            if options.get('update_apps', True):
+                src_apps = os.path.join(updtemp, "AppsExt")
+                if os.path.exists(src_apps):
+                    yield "INFO", "Updating external apps...", False
+                    dest_apps = os.path.join(dest_dir, "AppsExt")
+                    sync_root_items(src_apps, dest_apps, move=True)
+                    run_cmd(f"chown -R 1000:1000 '{dest_apps}'", as_root=True)
+
+            shutil.rmtree(updtemp, ignore_errors=True)
 
     # Common Logic for both Local and Online
-    if options['boot_default']:
+    if options.get('boot_default'):
         yield "INFO", "Updating startup default...", False
         set_ventoy_default(storage, fname)
 

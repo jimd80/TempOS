@@ -3,10 +3,19 @@ import json
 import time
 import glob
 import re
-from lib.utils import run_cmd, to_mb
+from libtempos.utils import run_cmd, to_mb
+
+def _is_truthy(val):
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, (int, float)):
+        return val == 1
+    if isinstance(val, str):
+        return val.strip().lower() in ('1', 'true', 'yes')
+    return False
 
 class StorageInfo:
-    def __init__(self):
+    def __init__(self, waitboot=False):
         # constants
         self.home = os.environ.get("HOME", "/home/user")
         self.asset_folder = "/usr/share/tempos"
@@ -23,9 +32,9 @@ class StorageInfo:
         self.chrome_pol_tmpl = f"{self.asset_folder}/tempos_policy.json.template"
         self.chrome_bookmark_tmpl = f"{self.asset_folder}/initial_bookmarks.html.template"
         self.available_update = None
-        self.refresh()
+        self.refresh(waitboot=waitboot)
 
-    def refresh(self):
+    def refresh(self, waitboot=False):
         self.boot_removable = False
         self.boot_removable_failed = False
         self.boot_part_device = "" 
@@ -48,13 +57,19 @@ class StorageInfo:
         if not self.boot_removable and " toram" in run_cmd("cat /proc/cmdline"):
             self.boot_removable_failed = True
 
-        for i in range(5):
-            lsblk_json = run_cmd("lsblk -J -b -o PATH,KNAME,PKNAME,TYPE,FSTYPE,LABEL,MOUNTPOINT,SIZE,HOTPLUG,PARTTYPENAME,FSUSED")
+        max_attempts = 5 if waitboot else 1
+        lsblk_json = ""
+        for i in range(max_attempts):
+            lsblk_json = run_cmd("lsblk -J -b -o PATH,KNAME,PKNAME,TYPE,FSTYPE,LABEL,MOUNTPOINT,SIZE,HOTPLUG,RM,PARTTYPENAME,FSUSED")
             if self.ventoy_iso_device in lsblk_json: break
-            if i == 0: run_cmd("udevadm trigger", as_root=True)
-            time.sleep(1)
+            if i == 0 and waitboot: run_cmd("udevadm trigger", as_root=True)
+            if i < max_attempts - 1:
+                time.sleep(1)
 
-        data = json.loads(lsblk_json)
+        try:
+            data = json.loads(lsblk_json)
+        except Exception:
+            data = {}
         devices = data.get('blockdevices', [])
 
         dm_dev = None
@@ -101,10 +116,11 @@ class StorageInfo:
             path = d.get('path')
             parts_on_disk = [p for p in self.partitions if p['MainDevice'] == path]
             t_os_vals = [p['IsTempOS'] for p in parts_on_disk]
+            is_removable = _is_truthy(d.get('hotplug')) or _is_truthy(d.get('rm'))
             self.drives.append({
                 'MainDevice': path,
                 'Size': d.get('size'),
-                'IsRemovable': str(d.get('hotplug', '0')) == '1',
+                'IsRemovable': is_removable,
                 'IsMounted': any(p['IsMounted'] for p in parts_on_disk),
                 'TempOs': max(t_os_vals) if t_os_vals else 0,
                 'VolumeNames': "+".join([p['VolumeName'] for p in parts_on_disk if p['VolumeName']])
@@ -137,6 +153,7 @@ class StorageInfo:
             except Exception: pass
 
         self.images_location = f"{self.mount_point}/{self.TempOs_Brand_Name}"
+        self.updtemp_location = f"{self.images_location}/Update_Temp_Folder"
         self.ini_filename = f"{self.images_location}/TempOS.ini"
         
         # Scan for Images

@@ -12,6 +12,6 @@ launchbrowser=0
 verifyimage=1
 closestartup=5
 updatecheck=1
-updateurl=https://justapp.me/drive/tempos/public/coderdojo-updates.txt
+updateurl=https://raw.githubusercontent.com/jimd80/TempOS/refs/heads/main/release/coderdojo-updates.txt
 folder=Documenten Documenten
 folder=Downloads Downloads

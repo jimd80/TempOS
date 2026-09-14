@@ -2,5 +2,6 @@ homepage=google.be
 startpage=google.be
 verifyimage=1
 closestartup=5
-updateurl=https://justapp.me/drive/tempos/public/tempos-updates.txt
+updatecheck=1
+updateurl=https://raw.githubusercontent.com/jimd80/TempOS/refs/heads/main/release/tempos-updates.txt
 favorite=Google google.be

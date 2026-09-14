@@ -5,14 +5,14 @@ import subprocess
 import threading
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox
-from lib.utils import run_cmd
-from lib.NetInfo import NetInfo
-from lib.MemInfo import MemInfo
-from lib.StorageInfo import StorageInfo
-from lib.Settings import Settings
-from lib.ops import verify_image_file, verify_booted_image, add_wifi_adaptors, MountTempOsBootMedium, perform_power_action
-from lib.install_logic import run_install_sequence
-from lib.update_logic import check_online_update, check_partition_update, run_update_sequence, run_ventoy_update
+from libtempos.utils import run_cmd
+from libtempos.NetInfo import NetInfo
+from libtempos.MemInfo import MemInfo
+from libtempos.StorageInfo import StorageInfo
+from libtempos.Settings import Settings
+from libtempos.ops import verify_image_file, verify_booted_image, add_wifi_adaptors, MountTempOsBootMedium, perform_power_action
+from libtempos.install_logic import run_install_sequence
+from libtempos.update_logic import check_online_update, check_partition_update, run_update_sequence, run_ventoy_update
 
 class LogDialog(tk.Toplevel):
     """
@@ -102,6 +102,15 @@ class TempOsTool(tk.Tk):
         self.update_map = []
         
         self._build_ui()
+
+    def _get_mapped_folders_suffix(self):
+        names = [f[0].strip() for f in self.settings.folders if f and len(f) > 0 and f[0].strip()]
+        if not names:
+            return ""
+        joined = ", ".join(names)
+        if len(joined) > 100:
+            joined = joined[:97] + "..."
+        return f" ({joined})"
 
     def _build_ui(self):
         # Configure styles
@@ -381,7 +390,13 @@ class TempOsTool(tk.Tk):
         
         # Checkbox Copy Folders
         self.var_copy_folders = tk.BooleanVar(value=False)
-        ttk.Checkbutton(frm_opts, text="Copy (overwrite) mapped folders", variable=self.var_copy_folders).pack(anchor='w', padx=20, pady=2)
+        self.chk_copy_folders = ttk.Checkbutton(frm_opts, text=f"Copy (overwrite) mapped folders{self._get_mapped_folders_suffix()}", variable=self.var_copy_folders)
+        self.chk_copy_folders.pack(anchor='w', padx=20, pady=2)
+
+        # Checkbox Copy External Apps
+        self.var_copy_apps = tk.BooleanVar(value=True)
+        self.chk_copy_apps = ttk.Checkbutton(frm_opts, text="Copy (update) external apps", variable=self.var_copy_apps)
+        self.chk_copy_apps.pack(anchor='w', padx=20, pady=2)
 
         # Checkbox Startup Default
         self.var_boot_default = tk.BooleanVar(value=True)
@@ -415,8 +430,8 @@ class TempOsTool(tk.Tk):
         
         ttk.Button(frm_online, text="Check for update", command=self.on_check_online_update).pack(side='left', **pad)
         
-        # Partition Update
-        frm_part = ttk.LabelFrame(self.tab_update, text="Update from Partition")
+        # Partition / USB Update
+        frm_part = ttk.LabelFrame(self.tab_update, text="Update from USB drive (please insert)")
         frm_part.pack(fill='x', **pad)
         
         ttk.Label(frm_part, text="Select Partition:").pack(side='left', **pad)
@@ -457,12 +472,18 @@ class TempOsTool(tk.Tk):
         self.var_upd_verify_src = tk.BooleanVar(value=False)
         self.var_upd_verify_dst = tk.BooleanVar(value=True)
         self.var_upd_settings = tk.BooleanVar(value=False)
+        self.var_upd_apps = tk.BooleanVar(value=True)
+        self.var_upd_folders = tk.BooleanVar(value=False)
         self.var_upd_default = tk.BooleanVar(value=True)
         self.var_cleanup_old = tk.BooleanVar(value=True)
         
         ttk.Checkbutton(frm_chk, text="Verify source image", variable=self.var_upd_verify_src).pack(anchor='w')
         ttk.Checkbutton(frm_chk, text="Verify installed image", variable=self.var_upd_verify_dst).pack(anchor='w')
         ttk.Checkbutton(frm_chk, text="Use source settings (replaces current)", variable=self.var_upd_settings).pack(anchor='w')
+        self.chk_upd_apps = ttk.Checkbutton(frm_chk, text="Update external apps", variable=self.var_upd_apps)
+        self.chk_upd_apps.pack(anchor='w')
+        self.chk_upd_folders = ttk.Checkbutton(frm_chk, text=f"Copy mapped folders{self._get_mapped_folders_suffix()}", variable=self.var_upd_folders)
+        self.chk_upd_folders.pack(anchor='w')
         ttk.Checkbutton(frm_chk, text="Set as startup default", variable=self.var_upd_default).pack(anchor='w')
         ttk.Checkbutton(frm_chk, text="Remove old versions (keep 1 version below current)", variable=self.var_cleanup_old).pack(anchor='w')
 
@@ -567,6 +588,7 @@ class TempOsTool(tk.Tk):
         self.lbl_mount_status.pack(side='left', padx=(0, 10))
 
         ttk.Button(debug_top, text="Install WiFi Configs", command=self.on_install_wifi).pack(side='left', padx=(0, 10))
+        ttk.Button(debug_top, text="Launch stand alone installer", command=self.on_launch_installer).pack(side='left', padx=(0, 10))
         
         self.btn_d2bench = ttk.Button(debug_top, text="Run system benchmark", command=self.on_run_d2bench)
         self.btn_d2bench.pack(side='left', padx=(0, 10))
@@ -578,6 +600,15 @@ class TempOsTool(tk.Tk):
         self.txt_debug.pack(expand=True, fill='both', padx=10, pady=(0, 10))
 
         self._update_debug_status()
+
+    def on_launch_installer(self):
+        try:
+            subprocess.Popen(["/Apps/Scripts/install_tempos"])
+        except Exception:
+            try:
+                subprocess.Popen("/Apps/Scripts/install_tempos", shell=True)
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to launch installer: {e}")
 
     def on_run_d2bench(self):
         self.btn_d2bench.config(state='disabled')
@@ -821,6 +852,8 @@ class TempOsTool(tk.Tk):
         idx = self.cb_update_version.current()
         if idx < 0 or idx >= len(self.update_map):
             self.lbl_update_target.config(text="Please press [Check for update]", foreground="black")
+            if hasattr(self, 'chk_upd_folders'):
+                self.chk_upd_folders.state(['disabled'])
             return
         
         item = self.update_map[idx]
@@ -830,7 +863,15 @@ class TempOsTool(tk.Tk):
         item_key = self._sort_key(item['name'])
         curr_key = self._sort_key(current_name)
         
-        mode = "Online" if item.get('type') == 'online' else "Offline"
+        is_online = (item.get('type') == 'online')
+        mode = "Online" if is_online else "Offline"
+
+        if is_online:
+            if hasattr(self, 'chk_upd_folders'):
+                self.chk_upd_folders.state(['disabled'])
+        else:
+            if hasattr(self, 'chk_upd_folders'):
+                self.chk_upd_folders.state(['!disabled'])
 
         if item['name'] == current_name:
             self.btn_start_update.config(state='disabled')
@@ -843,10 +884,10 @@ class TempOsTool(tk.Tk):
             if item_key < curr_key:
                 action = "downgrade"
                 self.btn_start_update.config(text="Start Downgrade")
+                self.lbl_update_target.config(text=f"{mode} {action} to {item['name']}", foreground="orange")
             else:
                 self.btn_start_update.config(text="Start Update")
-            
-            self.lbl_update_target.config(text=f"{mode} {action} to {item['name']}", foreground="green")
+                self.lbl_update_target.config(text=f"{mode} {action} to {item['name']}", foreground="green")
 
     def on_ventoy_update(self):
         dev = self.storage.boot_main_device
@@ -880,6 +921,9 @@ class TempOsTool(tk.Tk):
             'verify_src': self.var_upd_verify_src.get(),
             'verify_dst': self.var_upd_verify_dst.get(),
             'use_settings': self.var_upd_settings.get(),
+            'update_apps': self.var_upd_apps.get(),
+            'copy_folders': self.var_upd_folders.get() if item.get('type') == 'local' else False,
+            'folders': self.settings.folders,
             'boot_default': self.var_upd_default.get(),
             'cleanup_old': self.var_cleanup_old.get()
         }
@@ -920,6 +964,7 @@ class TempOsTool(tk.Tk):
         self.var_update_ventoy.set(True)
         self.var_settings_mode.set("copy")
         self.var_copy_folders.set(False)
+        self.var_copy_apps.set(True)
         self.var_boot_default.set(True)
         self.var_verify_src.set(False)
         self.var_verify_dst.set(True)
@@ -1017,6 +1062,7 @@ class TempOsTool(tk.Tk):
             'update_ventoy': self.var_update_ventoy.get(),
             'settings_mode': self.var_settings_mode.get(),
             'copy_folders': self.var_copy_folders.get(),
+            'copy_apps': self.var_copy_apps.get(),
             'boot_default': self.var_boot_default.get(),
             'verify_src': self.var_verify_src.get(),
             'verify_dst': self.var_verify_dst.get()
@@ -1196,6 +1242,12 @@ class TempOsTool(tk.Tk):
              self.ent_update_tab_url.delete(0, tk.END)
              self.ent_update_tab_url.insert(0, self.settings.update_url)
 
+        # Update labels that display mapped folders list
+        if hasattr(self, 'chk_copy_folders'):
+            self.chk_copy_folders.config(text=f"Copy (overwrite) mapped folders{self._get_mapped_folders_suffix()}")
+        if hasattr(self, 'chk_upd_folders'):
+            self.chk_upd_folders.config(text=f"Copy mapped folders{self._get_mapped_folders_suffix()}")
+
     def add_wifi(self):
         s, p = self.ent_ssid.get().strip(), self.ent_pass.get().strip()
         if not s:
@@ -1271,3 +1323,4 @@ class TempOsTool(tk.Tk):
         
         res = self.settings.save()
         messagebox.showinfo("Result", res)
+        self.load_ui_from_settings()

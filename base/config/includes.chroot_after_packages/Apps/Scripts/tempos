@@ -5,14 +5,14 @@ import subprocess
 import time
 import tkinter as tk
 from tkinter import ttk, messagebox
-from lib.NetInfo import NetInfo
-from lib.MemInfo import MemInfo
-from lib.StorageInfo import StorageInfo
-from lib.Settings import Settings
-from lib.StartupWindow import StartupWindow
-from lib.TempOsTool import TempOsTool
-from lib.startup_logic import run_startup_sequence
-from lib.ops import perform_power_action
+from libtempos.NetInfo import NetInfo
+from libtempos.MemInfo import MemInfo
+from libtempos.StorageInfo import StorageInfo
+from libtempos.Settings import Settings
+from libtempos.StartupWindow import StartupWindow
+from libtempos.TempOsTool import TempOsTool
+from libtempos.startup_logic import run_startup_sequence
+from libtempos.ops import perform_power_action
 
 def show_non_tempos_dialog():
     root = tk.Tk()
@@ -77,7 +77,7 @@ def main():
             print(f"=== TempOS System Information ===\n[Network]\n{NetInfo()}\n\n[Memory]\n{MemInfo().get_report()}\n\n[Storage]\n{StorageInfo().get_summary()}")
             return
         elif arg == "-startup":
-            storage = StorageInfo()
+            storage = StorageInfo(waitboot=True)
             if not storage.boot_is_tempos:
                 print("This system is booted / installed directly as iso image. You can continue but things like update, external apps, mapped storage wil not work.")
                 print("To have full functionality, you can install the system to another drive from here.")
@@ -123,7 +123,7 @@ def main():
                 
             sys.exit(exit_code)
         elif arg == "-startupgui":
-            storage = StorageInfo()
+            storage = StorageInfo(waitboot=True)
             if not storage.boot_is_tempos:
                 show_non_tempos_dialog()
                 sys.exit(0)

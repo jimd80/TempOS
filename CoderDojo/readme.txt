@@ -1,13 +1,15 @@
 * version history
 ** new in 13.6.0
-- Added new wifi portal and show type in log
+- Added new wifi portal type (to auto accept wifi terms)
 - Default Thonny config
 - Updated webserver
 - Added qwerty/azerty setting
 - Added online update check on startup
 - Added TurboWarp desktop icon
-- Added installer when booted directely as .iso
+- Added installer when booted directly as .iso
 - Added benchmark tool d2bench
+- More solid AppsExt and mapped folders sync logic on update
+- Timeout in boot menu 5 seconds instead of 3
 
 ** new in 13.5.0
 - Wait for internet for infinite time, unless cancelled by user

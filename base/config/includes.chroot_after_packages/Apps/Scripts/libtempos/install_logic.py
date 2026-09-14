@@ -3,8 +3,8 @@ import time
 import shutil
 import glob
 import re
-from lib.utils import run_cmd
-from lib.ops import verify_image_file
+from libtempos.utils import run_cmd
+from libtempos.ops import verify_image_file, sync_root_items
 
 def mount_destination(device, mount_point):
     """Mounts the destination partition."""
@@ -15,9 +15,11 @@ def mount_destination(device, mount_point):
         run_cmd(f"umount {mount_point}", as_root=True)
         
     if not os.path.exists(mount_point):
-        run_cmd(f"mkdir -p {mount_point}", as_root=True)
+        run_cmd(f"mkdir -p '{mount_point}'", as_root=True)
+        run_cmd(f"chown 1000:1000 '{mount_point}'", as_root=True)
         
     run_cmd(f"mount {device} {mount_point} -o rw,uid=1000,gid=1000", as_root=True)
+    run_cmd(f"chown 1000:1000 '{mount_point}'", as_root=True)
     return os.path.ismount(mount_point)
 
 def run_install_sequence(storage, settings, options):
@@ -30,6 +32,7 @@ def run_install_sequence(storage, settings, options):
         'update_ventoy': bool,
         'settings_mode': 'copy' | 'default' | 'keep',
         'copy_folders': bool,
+        'copy_apps': bool,
         'boot_default': bool,
         'verify_src': bool,
         'verify_dst': bool
@@ -228,25 +231,32 @@ def run_install_sequence(storage, settings, options):
         shutil.copy2(f"{storage.asset_folder}/TempOS.ini.default", dest_ini)
 
     # 11. AppsExt
-    src_apps = f"{storage.images_location}/AppsExt"
-    dst_apps = f"{brand_dir}/AppsExt"
-    if os.path.exists(src_apps):
-        yield "INFO", "Syncing AppsExt...", False
-        if not os.path.exists(dst_apps): os.makedirs(dst_apps)
-        cmd = ["rsync", "-a", "--delete", f"{src_apps}/", dst_apps]
-        run_cmd(cmd, as_root=True)
+    if options.get('copy_apps', True):
+        src_apps = f"{storage.images_location}/AppsExt"
+        dst_apps = f"{brand_dir}/AppsExt"
+        if os.path.exists(src_apps):
+            yield "INFO", "Syncing AppsExt...", False
+            sync_root_items(src_apps, dst_apps, move=False)
+        elif options.get('mode') == 'erase':
+            os.makedirs(dst_apps, exist_ok=True)
+            
+        if os.path.exists(dst_apps):
+            readme_src = os.path.join(storage.asset_folder, "AppsExt_Readme.md")
+            if os.path.exists(readme_src):
+                shutil.copy2(readme_src, os.path.join(dst_apps, "Readme.md"))
+            run_cmd(f"chown -R 1000:1000 '{dst_apps}'", as_root=True)
 
     # 12. Mapped Folders
-    if options['copy_folders'] and options['settings_mode'] == 'copy':
+    if options.get('copy_folders') and options.get('settings_mode') == 'copy':
         yield "INFO", "Syncing mapped folders...", False
         for name, _ in settings.folders:
             if not name: continue
             src_f = f"{storage.images_location}/{name.strip()}"
             dst_f = f"{brand_dir}/{name.strip()}"
             if os.path.exists(src_f):
-                if not os.path.exists(dst_f): os.makedirs(dst_f)
                 yield "INFO", f"Syncing {name}...", False
-                run_cmd(["rsync", "-a", f"{src_f}/", dst_f], as_root=True)
+                sync_root_items(src_f, dst_f, move=False)
+                run_cmd(f"chown -R 1000:1000 '{dst_f}'", as_root=True)
 
     # 13. Startup Default
     if options['boot_default']:

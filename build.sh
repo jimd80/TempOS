@@ -67,6 +67,7 @@ else
 fi
 
 # set scripts executable and unpack app zip files
+chmod +x ./tools/vanity-hash
 chmod +x "$BUILD_DIR/auto/"*
 chmod 0755 -R "$BUILD_DIR/config/hooks"* || true
 chmod go+r -R "$BUILD_DIR/config/includes.chroot_after_packages/"* || true
@@ -143,6 +144,12 @@ if [ ! -f "$GENERATED_ISO" ]; then
 fi
 
 mv "$GENERATED_ISO" "$TARGET_ISO"
+
+echo "[*] Customizing iso hash..."
+# makes the hash to contain a defined part to allow corruption check when no hash is available
+# the last bytes of the iso image will be replaced by a nonce for a matching hash
+# this is safe, as the last 512 byte block contains the Secondary (Backup) GPT Header which is only 92 bytes
+../../tools/vanity-hash -s c0de -e cafe -o last "$TARGET_ISO"
 
 echo "[*] Calc iso hash..."
 sha256sum "$TARGET_ISO" | awk '{print $1}' > "$HASH_FILE"
