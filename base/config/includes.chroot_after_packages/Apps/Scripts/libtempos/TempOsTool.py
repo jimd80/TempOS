@@ -1,6 +1,5 @@
 import os
 import re
-import glob
 import subprocess
 import threading
 import tkinter as tk
@@ -10,7 +9,7 @@ from libtempos.NetInfo import NetInfo
 from libtempos.MemInfo import MemInfo
 from libtempos.StorageInfo import StorageInfo
 from libtempos.Settings import Settings
-from libtempos.ops import verify_image_file, verify_booted_image, add_wifi_adaptors, MountTempOsBootMedium, perform_power_action
+from libtempos.ops import verify_booted_image, add_wifi_adaptors, MountTempOsBootMedium, perform_power_action
 from libtempos.install_logic import run_install_sequence
 from libtempos.update_logic import check_online_update, check_partition_update, run_update_sequence, run_ventoy_update
 
@@ -688,7 +687,10 @@ class TempOsTool(tk.Tk):
             options.append(name)
         
         self.cb_install_iso['values'] = options
-        if options: self.cb_install_iso.current(0)
+        if options:
+            self.cb_install_iso.current(0)
+        else:
+            self.cb_install_iso.set('')
 
     def _refresh_install_destinations(self):
         self.storage.refresh()

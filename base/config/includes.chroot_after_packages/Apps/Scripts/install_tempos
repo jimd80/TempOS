@@ -31,17 +31,13 @@ class InstallTemposApp(tk.Tk):
 
         # 1. Initialize StorageInfo
         self.storage = StorageInfo()
-        self.brand_name = self.storage.TempOs_Brand_Name or "TempOS"
-        self.image_name = self.storage.tempos_image or "TempOS.iso"
-        self.image_no_ext = os.path.splitext(self.image_name)[0]
+        self.brand_name = self.storage.TempOs_Brand_Name
+        self.image_name = self.storage.tempos_image
+        self.image_no_ext = os.path.splitext(self.image_name)[0] if self.image_name else ""
         self.mount_point_dest = self.storage.mount_point_install
 
         # 2. Detect Boot ISO Device & ISO Size
-        self.boot_main_device = None
-        for p in self.storage.partitions:
-            if p.get('FsType') == 'iso9660' and p.get('VolumeName') == self.image_no_ext:
-                self.boot_main_device = p.get('MainDevice')
-                break
+        self.boot_main_device = self.storage.boot_direct_iso_device
 
         self.iso_size = 0
         if self.boot_main_device:
@@ -53,7 +49,7 @@ class InstallTemposApp(tk.Tk):
 
         if not self.boot_main_device or self.iso_size <= 0:
             self.withdraw()
-            messagebox.showinfo(self.brand_name, "Please use TempOS tools to install")
+            messagebox.showinfo(self.brand_name, "This tool can only be used if booted directly from iso image")
             self.destroy()
             sys.exit(0)
 
@@ -707,7 +703,7 @@ class InstallTemposApp(tk.Tk):
                 
             run_cmd("sync")
             time.sleep(1)
-            yield "INFO", "Verifying installed offline image...", False
+            yield "INFO", "Verifying installed image...", False
             run_cmd("sh -c 'echo 3 > /proc/sys/vm/drop_caches'", as_root=True)
             ok, actual_hash = self._verify_file_sha256(dest_iso_path, offline_sha256)
             if not ok:

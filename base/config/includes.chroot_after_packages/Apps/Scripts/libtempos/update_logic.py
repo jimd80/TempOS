@@ -3,7 +3,6 @@ import re
 import shutil
 import time
 import urllib.request
-import glob
 from libtempos.utils import run_cmd, to_mb
 from libtempos.ops import verify_image_file, set_ventoy_default, sync_root_items
 

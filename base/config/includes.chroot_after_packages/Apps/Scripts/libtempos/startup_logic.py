@@ -12,14 +12,17 @@ def run_startup_sequence(storage, settings):
     """
     A generator that performs the startup sequence steps.
     Yields tuples: (status_type, message, replace_last_line)
-    status_type: 'INFO', 'SUCCESS', 'ERROR', 'WAIT_NET', 'WAIT_NET_WARN', 'UPDATE_AVAILABLE'
+    status_type: 'INFO', 'SUCCESS', 'WARNING', 'ERROR', 'WAIT_NET', 'WAIT_NET_WARN', 'UPDATE_AVAILABLE'
     Receives (via send): 'SKIP' to skip waiting for internet
     """
     yield "INFO", "Initiating Startup Sequence...", False
     run_cmd("xset s off -dpms")
 
     if not storage.boot_is_tempos:
-        yield "ERROR", "This system is booted / installed directly as iso image. You can continue but things like update, external apps, mapped storage wil not work.", False
+        if storage.boot_removable:
+            yield "ERROR", "USB Drive is already removed. Please keep it connected until startup is done.", False
+        else:
+            yield "ERROR", "This system is booted / installed directly as iso image. You can continue but things like update, external apps, mapped storage wil not work.", False
         return
 
     yield "INFO", "Init Boot Medium...", False
@@ -238,8 +241,8 @@ def run_startup_sequence(storage, settings):
     if storage.boot_removable:
         yield "INFO", "Unmounting boot medium...", False
         ok, msg = MountTempOsBootMedium(storage, unmount=True)
-        if ok: yield "INFO", "Please remove the USB drive (system is loaded in RAM)", False
-        else: yield "ERROR", f"Unmount failed: {msg}", False
+        if not ok:
+            yield "ERROR", f"Unmount failed: {msg}", False
 
     # Check for online updates on start
     if settings.update_check and not storage.boot_removable and connected and settings.update_url:
@@ -267,3 +270,6 @@ def run_startup_sequence(storage, settings):
             yield "INFO", f"Update check failed: {e}", False
 
     yield "SUCCESS", "Startup sequence completed.", False
+
+    if storage.boot_removable:
+        yield "WARNING", "Please remove the USB stick (system is loaded in RAM)", False

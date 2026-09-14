@@ -1,1 +1,1 @@
-TempOS-13.7.0 xx https://justapp.me/drive/tempos/public/TempOS-13.7.0.iso 5dcac52759d6a25843108cb322234f750f3506915680fb3853833c78a6d5b9c7 https://justapp.me/drive/tempos/public/TempOS-13.7.0.zip
+TempOS-13.7.0 c0de1ff4e1c3d5b60a53494dad39a98b61cd5ad59353cf7f4fc957602d4acafe https://justapp.me/drive/tempos/public/TempOS-13.7.0.iso 5dcac52759d6a25843108cb322234f750f3506915680fb3853833c78a6d5b9c7 https://justapp.me/drive/tempos/public/TempOS-13.7.0.zip

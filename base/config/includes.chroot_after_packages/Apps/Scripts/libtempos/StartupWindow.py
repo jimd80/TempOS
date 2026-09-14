@@ -29,6 +29,7 @@ class StartupWindow(tk.Tk):
         self.log = scrolledtext.ScrolledText(self, wrap=tk.WORD, font=("Consolas", 10))
         self.log.pack(expand=True, fill='both', padx=5, pady=5)
         self.log.tag_config("ERROR", foreground="red")
+        self.log.tag_config("WARNING", foreground="orange")
         self.log.tag_config("SUCCESS", foreground="green")
         self.log.tag_config("INFO", foreground="black")
         
@@ -74,12 +75,14 @@ class StartupWindow(tk.Tk):
                 self.btn_update.pack(side='left', padx=5)
             else:
                 # Translate WARN state for unified display logic
-                display_status = "WARNING" if status == "WAIT_NET_WARN" else status
+                display_status = "WARNING" if status in ["WAIT_NET_WARN", "WARNING"] else status
                 if display_status == "ERROR":
                     self.has_error = True
                 
-                if display_status in ["ERROR", "WARNING"]:
+                if display_status == "ERROR":
                     tag = "ERROR"
+                elif display_status == "WARNING":
+                    tag = "WARNING"
                 elif display_status == "SUCCESS":
                     tag = "SUCCESS"
                 else:
@@ -119,8 +122,6 @@ class StartupWindow(tk.Tk):
             log_path = os.path.join(self.storage.config_folder, "start_log.txt")
             with open(log_path, "w") as f:
                 f.write(self.log.get("1.0", tk.END))
-            self.log.insert(tk.END, f"Log saved to: {log_path}\n", "INFO")
-            self.log.see(tk.END)
         except Exception as e:
             self.log.insert(tk.END, f"Failed to save log: {e}\n", "ERROR")
 
@@ -178,7 +179,7 @@ class StartupWindow(tk.Tk):
             if replace:
                 self.log.delete("end-2l", "end-1c")
 
-            tag = status if status in ["ERROR", "SUCCESS", "INFO"] else "INFO"
+            tag = status if status in ["ERROR", "WARNING", "SUCCESS", "INFO"] else "INFO"
             self.log.insert(tk.END, f"[{status}] {msg}\n", tag)
             self.log.see(tk.END)
             self.update()

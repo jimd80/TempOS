@@ -32,6 +32,7 @@ class StorageInfo:
         self.chrome_pol_tmpl = f"{self.asset_folder}/tempos_policy.json.template"
         self.chrome_bookmark_tmpl = f"{self.asset_folder}/initial_bookmarks.html.template"
         self.available_update = None
+        self.boot_direct_iso_device = ""
         self.refresh(waitboot=waitboot)
 
     def refresh(self, waitboot=False):
@@ -40,6 +41,7 @@ class StorageInfo:
         self.boot_part_device = "" 
         self.boot_mount_device = "" 
         self.boot_main_device = "" 
+        self.boot_direct_iso_device = ""
         self.boot_is_tempos = False
         self.tempos_mount = ""
         self.partitions = []
@@ -152,6 +154,15 @@ class StorageInfo:
                     self.distro_name = "Debian " + f.read().strip()
             except Exception: pass
 
+        # Detect direct ISO boot device
+        self.boot_direct_iso_device = ""
+        image_no_ext = os.path.splitext(self.tempos_image)[0] if self.tempos_image else ""
+        if image_no_ext:
+            for d in devices:
+                if d.get('type') in ('disk', 'rom') and d.get('fstype') == 'iso9660' and d.get('label') == image_no_ext:
+                    self.boot_direct_iso_device = d.get('path') or ""
+                    break
+
         self.images_location = f"{self.mount_point}/{self.TempOs_Brand_Name}"
         self.updtemp_location = f"{self.images_location}/Update_Temp_Folder"
         self.ini_filename = f"{self.images_location}/TempOS.ini"
@@ -190,6 +201,7 @@ class StorageInfo:
         out.append(f"Boot Partition: {self.boot_part_device}")
         out.append(f"Boot Mount Device: {self.boot_mount_device}")
         out.append(f"Boot Drive: {self.boot_main_device}")
+        out.append(f"Boot Direct ISO Device: {self.boot_direct_iso_device}")
         out.append(f"Current System is TempOS: {self.boot_is_tempos}")
         out.append(f"TempOS Mount Point: {self.tempos_mount}")
         out.append(f"Desktop Path: {self.desktop_path}")

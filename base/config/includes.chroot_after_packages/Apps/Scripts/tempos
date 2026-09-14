@@ -14,6 +14,37 @@ from libtempos.TempOsTool import TempOsTool
 from libtempos.startup_logic import run_startup_sequence
 from libtempos.ops import perform_power_action
 
+def show_tempos_removed_dialog():
+    root = tk.Tk()
+    root.title("TempOS")
+    ws, hs = root.winfo_screenwidth(), root.winfo_screenheight()
+    w, h = 480, 140
+    x, y = int((ws - w) / 2), int((hs - h) / 2)
+    root.geometry(f"{w}x{h}+{x}+{y}")
+    root.resizable(False, False)
+
+    msg = "TempOS tools is unavailable when the USB drive is removed"
+
+    lbl = ttk.Label(root, text=msg, wraplength=440, justify='center', font=("TkDefaultFont", 10))
+    lbl.pack(expand=True, fill='both', padx=20, pady=(20, 10))
+
+    btn_frame = ttk.Frame(root)
+    btn_frame.pack(fill='x', padx=20, pady=(0, 20))
+
+    btn_subframe = ttk.Frame(btn_frame)
+    btn_subframe.pack()
+
+    def on_close():
+        root.destroy()
+        sys.exit(0)
+
+    btn_close = ttk.Button(btn_subframe, text="Close", command=on_close, width=12)
+    btn_close.pack(side='left', padx=10)
+
+    root.protocol("WM_DELETE_WINDOW", on_close)
+    root.mainloop()
+    sys.exit(0)
+
 def show_non_tempos_dialog():
     root = tk.Tk()
     root.title("TempOS")
@@ -78,7 +109,7 @@ def main():
             return
         elif arg == "-startup":
             storage = StorageInfo(waitboot=True)
-            if not storage.boot_is_tempos:
+            if not storage.boot_is_tempos and not storage.boot_removable:
                 print("This system is booted / installed directly as iso image. You can continue but things like update, external apps, mapped storage wil not work.")
                 print("To have full functionality, you can install the system to another drive from here.")
                 sys.exit(1)
@@ -90,7 +121,7 @@ def main():
             
             for status, msg, replace in run_startup_sequence(storage, settings):
                 is_wait = status in ["WAIT_NET", "WAIT_NET_WARN"]
-                if status == "WAIT_NET_WARN":
+                if status in ["WAIT_NET_WARN", "WARNING"]:
                     display_status = "WARNING"
                 elif status == "UPDATE_AVAILABLE":
                     display_status = "INFO"
@@ -124,7 +155,7 @@ def main():
             sys.exit(exit_code)
         elif arg == "-startupgui":
             storage = StorageInfo(waitboot=True)
-            if not storage.boot_is_tempos:
+            if not storage.boot_is_tempos and not storage.boot_removable:
                 show_non_tempos_dialog()
                 sys.exit(0)
 
@@ -143,7 +174,10 @@ def main():
     storage_info = StorageInfo()
     
     if not storage_info.boot_is_tempos:
-        show_non_tempos_dialog()
+        if storage_info.boot_removable:
+            show_tempos_removed_dialog()
+        else:
+            show_non_tempos_dialog()
         sys.exit(0)
 
     settings = Settings(storage_info)
